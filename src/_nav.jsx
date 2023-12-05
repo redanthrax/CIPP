@@ -421,6 +421,11 @@ const _nav = [
         name: 'Add MSP App',
         to: '/endpoint/applications/add-rmm-app',
       },
+      {
+        component: CNavItem,
+        name: 'Add LOB App',
+        to: '/endpoint/applications/add-lob-app',
+      },
     ],
   },
   {
