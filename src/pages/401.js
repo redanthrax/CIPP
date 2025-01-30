@@ -29,7 +29,7 @@ const Page = () => (
                 <CippImageCard
                   isFetching={false}
                   imageUrl="/assets/illustrations/undraw_articles_wbpb.svg"
-                  text="It seems like you're not allowed to be here. Let's go to the homepage to see if we know where we need to go next."
+                  text="It asdfasdf  seems like you're not allowed to be here. Let's go to the homepage to see if we know where we need to go next."
                   title="Error 401 - Not allowed"
                   linkText={"Return"}
                   link={"/"}
