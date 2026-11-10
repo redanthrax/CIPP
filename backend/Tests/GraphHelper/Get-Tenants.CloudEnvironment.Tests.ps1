@@ -177,3 +177,83 @@ Describe 'Get-Tenants cloudEnvironment across the GDAP refresh' {
         $Result.cloudEnvironment | Should -Be 'USGovDoD'
     }
 }
+
+# The partner (own) tenant row is also rewritten whole, in both partner modes. A detected or manually
+# set cloud on it must survive that rewrite rather than silently fall back to Commercial.
+Describe 'Get-Tenants cloudEnvironment on the partner tenant row' {
+    BeforeAll {
+        function Get-AzDataTableEntity { param($Context, $Filter) }
+        function Add-CIPPAzDataTableEntity { param($Context, $Entity, [switch]$Force) }
+        function Add-AzDataTableEntity { param($Context, $Entity, [switch]$Force) }
+        function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck) }
+        function Get-CippException { param($Exception) }
+
+        $script:OrigRefreshToken = $env:RefreshToken
+        $script:OrigTenantID = $env:TenantID
+        $env:RefreshToken = 'pester'
+        $env:TenantID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+    }
+
+    AfterAll {
+        $env:RefreshToken = $script:OrigRefreshToken
+        $env:TenantID = $script:OrigTenantID
+    }
+
+    BeforeEach {
+        $script:Mode = 'PartnerTenantAvailable'
+        $script:PartnerRow = $null
+        $script:Written = [System.Collections.Generic.List[object]]::new()
+
+        Mock Get-CippTable { @{} }
+        Mock ConvertTo-CIPPODataFilterValue { $Value }
+        Mock Write-LogMessage {}
+        Mock Get-CippException { @{} }
+        Mock Get-AzDataTableEntity {}
+        Mock Add-AzDataTableEntity { $script:Written.Add($Entity) }
+        Mock Add-CIPPAzDataTableEntity { foreach ($E in @($Entity)) { $script:Written.Add($E) } }
+        Mock Get-CIPPAzDataTableEntity {
+            if ([string]::IsNullOrEmpty($Filter)) { return [PSCustomObject]@{ state = $script:Mode } }
+            if ($Filter -like "*RowKey eq '$($env:TenantID)'*") { return $script:PartnerRow }
+            return $null
+        }
+        Mock New-GraphGetRequest {
+            if ($uri -like '*delegatedAdminRelationships*') { return @() }
+            if ($uri -like '*beta/domains*') {
+                return @(
+                    [PSCustomObject]@{ id = 'partner.us'; isDefault = $true; isInitial = $false }
+                    [PSCustomObject]@{ id = 'partner.onmicrosoft.us'; isDefault = $false; isInitial = $true }
+                )
+            }
+            throw "unexpected Graph call: $uri"
+        }
+    }
+
+    It 'keeps a stored <Value> on the partner row in <Mode> mode' -ForEach @(
+        @{ Mode = 'PartnerTenantAvailable'; Value = 'USGovHigh' }
+        @{ Mode = 'PartnerTenantAvailable'; Value = 'USGovDoD' }
+        @{ Mode = 'owntenant'; Value = 'USGovHigh' }
+        @{ Mode = 'owntenant'; Value = 'USGovDoD' }
+    ) {
+        $script:Mode = $Mode
+        $script:PartnerRow = [PSCustomObject]@{ PartitionKey = 'Tenants'; RowKey = $env:TenantID; customerId = $env:TenantID; cloudEnvironment = $Value }
+
+        # owntenant only rewrites when the (possibly filtered) cache read came back empty
+        $Result = if ($Mode -eq 'owntenant') { Get-Tenants -TenantFilter 'someone-else.com' } else { Get-Tenants -TriggerRefresh }
+
+        $Partner = @($script:Written | Where-Object { $_.RowKey -eq $env:TenantID })
+        $Partner.Count | Should -Be 1
+        $Partner[0].cloudEnvironment | Should -Be $Value
+        if ($Mode -eq 'PartnerTenantAvailable') { $Result.cloudEnvironment | Should -Be $Value }
+    }
+
+    It 'writes Commercial on the partner row in <Mode> mode when none is stored' -ForEach @(
+        @{ Mode = 'PartnerTenantAvailable' }
+        @{ Mode = 'owntenant' }
+    ) {
+        $script:Mode = $Mode
+        $null = if ($Mode -eq 'owntenant') { Get-Tenants } else { Get-Tenants -TriggerRefresh }
+
+        $Partner = @($script:Written | Where-Object { $_.RowKey -eq $env:TenantID })
+        $Partner[0].cloudEnvironment | Should -Be 'Commercial'
+    }
+}
