@@ -1,8 +1,10 @@
 # Pester tests for the cloud environment recorded by Invoke-ExecAddTenant
 #
-# A new direct tenant stores the cloud reported by Get-CIPPTenantCloudEnvironment
-# (redanthrax/CIPP#1). Detection must never stop the tenant from being added, and the
-# existing-tenant and blocked GDAP-conversion branches must not detect or write a cloud.
+# #1: a new direct tenant stores a cloud; the GDAP-conversion branch writes nothing.
+# #2: the consent token's cloud (audience/issuer) must agree with the cloud picked in the UI; Graph is
+# called on that cloud's host; discovery must agree on commercial vs government (reject otherwise,
+# discarding the stored token); for GCC High vs DoD the token wins. A refresh of an existing direct
+# tenant must be for the stored cloud. Government tenants skip the permission push.
 
 BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
@@ -33,19 +35,41 @@ BeforeAll {
     function Get-CIPPTenantCloudEnvironment { param($TenantId, $InitialDomainName) }
 
     . $FunctionPath
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPAccessTokenCloudEnvironment.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
+
+    $script:Audience = @{ Commercial = 'https://graph.microsoft.com'; USGovHigh = 'https://graph.microsoft.us'; USGovDoD = 'https://dod-graph.microsoft.us' }
+    function New-TestJwt {
+        param([hashtable]$Claims)
+        $Encode = { param($Text) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Text)).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+        '{0}.{1}.sig' -f (& $Encode '{"alg":"RS256"}'), (& $Encode ($Claims | ConvertTo-Json -Compress))
+    }
 
     $script:TenantId = 'cccccccc-1111-2222-3333-444444444444'
 
     function New-AddRequest {
+        param(
+            # Cloud picked in the UI (sent as cloudEnvironment); $null sends nothing (pre-#2 clients)
+            $Cloud = 'USGovHigh',
+            # Cloud the token is for; defaults to the picked one
+            $TokenCloud,
+            $Issuer = 'https://sts.windows.net/x/',
+            $AccessToken
+        )
+        if (-not $TokenCloud) { $TokenCloud = if ($Cloud) { $Cloud } else { 'Commercial' } }
+        if (-not $AccessToken) { $AccessToken = New-TestJwt @{ aud = $script:Audience[$TokenCloud]; iss = $Issuer; tid = $script:TenantId } }
+        $Body = [pscustomobject]@{
+            tenantId          = $script:TenantId
+            defaultDomainName = 'contoso.us'
+            accessToken       = $AccessToken
+            username          = 'admin@contoso.onmicrosoft.us'
+        }
+        if ($null -ne $Cloud) { $Body | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue $Cloud }
         [pscustomobject]@{
             Params  = @{ CIPPEndpoint = 'ExecAddTenant' }
             Headers = @{ }
-            Body    = [pscustomobject]@{
-                tenantId          = $script:TenantId
-                defaultDomainName = 'contoso.us'
-                accessToken       = 'token'
-                username          = 'admin@contoso.onmicrosoft.us'
-            }
+            Body    = $Body
             Query   = [pscustomobject]@{ }
         }
     }
@@ -70,6 +94,7 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
     BeforeEach {
         $script:Written = [System.Collections.Generic.List[object]]::new()
         $script:ExistingTenant = $null
+        Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue
 
         Mock Test-CIPPAccess { @('AllTenants') }
         Mock Get-CippTable { @{ Context = $tablename } }
@@ -85,7 +110,7 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
     }
 
     Context 'new tenant' {
-        It 'stores the detected cloud environment <Value> on the new row' -TestCases @(
+        It 'stores <Value> when the token and discovery agree' -TestCases @(
             @{ Value = 'Commercial' }
             @{ Value = 'USGovHigh' }
             @{ Value = 'USGovDoD' }
@@ -93,12 +118,33 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             param($Value)
             Mock Get-CIPPTenantCloudEnvironment { $Value }
 
-            $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $Value)
 
             $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
             $script:Written.Count | Should -Be 1
             $script:Written[0].cloudEnvironment | Should -BeExactly $Value
             $script:Written[0].delegatedPrivilegeStatus | Should -Be 'directTenant'
+        }
+
+        It 'calls Graph for a <Cloud> token on <GraphHost> only' -TestCases @(
+            @{ Cloud = 'Commercial'; GraphHost = 'graph.microsoft.com' }
+            @{ Cloud = 'USGovHigh'; GraphHost = 'graph.microsoft.us' }
+            @{ Cloud = 'USGovDoD'; GraphHost = 'dod-graph.microsoft.us' }
+        ) {
+            param($Cloud, $GraphHost)
+            Mock Get-CIPPTenantCloudEnvironment { $Cloud }
+            $null = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $Cloud)
+            Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq "https://$GraphHost/v1.0/`$batch" }
+            Should -Invoke Invoke-RestMethod -Times 1 -Exactly
+        }
+
+        It 'accepts a pre-#2 request with no cloudEnvironment and a commercial token' {
+            Mock Get-CIPPTenantCloudEnvironment { 'Commercial' }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $null)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'Commercial'
+            Should -Invoke Invoke-RestMethod -ParameterFilter { $Uri -eq 'https://graph.microsoft.com/v1.0/$batch' }
+            Should -Invoke Start-CIPPOrchestrator -Times 1
         }
 
         It 'passes the tenant id and the initial domain from Graph to detection' {
@@ -108,18 +154,43 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             }
         }
 
-        It 'still adds the tenant as Commercial when detection throws' {
+        It 'keeps the token''s <TokenCloud> when discovery says <Detected>' -TestCases @(
+            @{ TokenCloud = 'USGovDoD'; Detected = 'USGovHigh' }
+            @{ TokenCloud = 'USGovHigh'; Detected = 'USGovDoD' }
+        ) {
+            param($TokenCloud, $Detected)
+            Mock Get-CIPPTenantCloudEnvironment { $Detected }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $TokenCloud)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly $TokenCloud
+            Should -Invoke Write-LogMessage -ParameterFilter { $message -like "*Discovery reports $Detected*Storing $TokenCloud*" }
+        }
+
+        It 'rejects and discards the token when the token is <TokenCloud> but discovery says <Detected>' -TestCases @(
+            @{ TokenCloud = 'USGovHigh'; Detected = 'Commercial' }
+            @{ TokenCloud = 'USGovDoD'; Detected = 'Commercial' }
+            @{ TokenCloud = 'Commercial'; Detected = 'USGovHigh' }
+            @{ TokenCloud = 'Commercial'; Detected = 'USGovDoD' }
+        ) {
+            param($TokenCloud, $Detected)
+            Mock Get-CIPPTenantCloudEnvironment { $Detected }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $TokenCloud)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.severity | Should -Be 'error'
+            $script:Written.Count | Should -Be 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 1 -ParameterFilter { $TenantId -eq $script:TenantId }
+            Should -Invoke Start-CIPPOrchestrator -Times 0
+            Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Warning' -and $message -like '*Blocked adding tenant*discovery*' }
+        }
+
+        It 'stores the token''s cloud when detection throws' {
             Mock Get-CIPPTenantCloudEnvironment { throw 'detection exploded' }
 
-            $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovDoD')
 
             $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
-            $Response.Body.severity | Should -Be 'success'
-            $script:Written.Count | Should -Be 1
-            $script:Written[0].cloudEnvironment | Should -Be 'Commercial'
-            $script:Written[0].RowKey | Should -Be $script:TenantId
-            Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Warning' -and $message -like '*defaulting to Commercial*' }
-            Should -Invoke Start-CIPPOrchestrator -Times 1
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'USGovDoD'
+            Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Warning' -and $message -like '*using USGovDoD from the sign-in token*' }
         }
 
         It 'does not detect or write when the Graph lookup fails' {
@@ -128,6 +199,56 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             $Response.StatusCode | Should -Be ([HttpStatusCode]::InternalServerError)
             Should -Invoke Get-CIPPTenantCloudEnvironment -Times 0
             $script:Written.Count | Should -Be 0
+        }
+
+        It 'skips the permission push for a government tenant and queues it for a commercial one' {
+            Mock Get-CIPPTenantCloudEnvironment { 'USGovHigh' }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovHigh')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            Should -Invoke Start-CIPPOrchestrator -Times 0
+            Should -Invoke Write-LogMessage -ParameterFilter { $message -like '*Skipped the permission push*' }
+
+            Mock Get-CIPPTenantCloudEnvironment { 'Commercial' }
+            $null = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'Commercial')
+            Should -Invoke Start-CIPPOrchestrator -Times 1
+        }
+    }
+
+    Context 'token cloud must match the selected cloud' {
+        It 'rejects <Name> before calling Graph, and discards the stored token' -TestCases @(
+            @{ Name = 'a GCC High token for a Commercial selection'; Cloud = 'Commercial'; TokenCloud = 'USGovHigh' }
+            @{ Name = 'a commercial token for a GCC High selection'; Cloud = 'USGovHigh'; TokenCloud = 'Commercial' }
+            @{ Name = 'a GCC High token for a DoD selection'; Cloud = 'USGovDoD'; TokenCloud = 'USGovHigh' }
+            @{ Name = 'a GCC High token with no selection'; Cloud = $null; TokenCloud = 'USGovHigh' }
+            @{ Name = 'a miscased selection'; Cloud = 'usgovhigh'; TokenCloud = 'USGovHigh' }
+            @{ Name = 'an unknown selection'; Cloud = 'GCCHigh'; TokenCloud = 'USGovHigh' }
+        ) {
+            param($Name, $Cloud, $TokenCloud)
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $Cloud -TokenCloud $TokenCloud)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            Should -Invoke Invoke-RestMethod -Times 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 1 -ParameterFilter { $TenantId -eq $script:TenantId }
+            $script:Written.Count | Should -Be 0
+        }
+
+        It 'rejects a v2 token from the commercial authority for a government selection' {
+            $Token = New-TestJwt @{ aud = '00000003-0000-0000-c000-000000000000'; iss = 'https://login.microsoftonline.com/x/v2.0' }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovHigh' -AccessToken $Token)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            Should -Invoke Invoke-RestMethod -Times 0
+        }
+
+        It 'rejects <Name>' -TestCases @(
+            @{ Name = 'a token that is not a JWT'; Claims = $null }
+            @{ Name = 'a token for an unknown audience'; Claims = @{ aud = 'https://graph.microsoft.de'; iss = 'https://sts.windows.net/x/' } }
+            @{ Name = 'a token from an unknown issuer'; Claims = @{ aud = 'https://graph.microsoft.us'; iss = 'https://login.evil.example/x/' } }
+        ) {
+            param($Name, $Claims)
+            $Token = if ($Claims) { New-TestJwt $Claims } else { 'token' }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -AccessToken $Token)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            Should -Invoke Invoke-RestMethod -Times 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 1
         }
     }
 
@@ -171,21 +292,43 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
                 delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'USGovDoD'
             }
 
-            $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovDoD')
 
             $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
             Should -Invoke Get-CIPPTenantCloudEnvironment -Times 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
             $script:Written.Count | Should -Be 1
             $script:Written[0].cloudEnvironment | Should -Be 'USGovDoD'
             $script:Written[0].directTenantUserPrincipalName | Should -Be 'admin@contoso.onmicrosoft.us'
         }
 
-        It 'leaves a legacy row without a cloud value untouched' {
+        It 'rejects a refresh signed in to <TokenCloud> for a tenant stored as <Stored>, discarding the token' -TestCases @(
+            @{ Stored = 'USGovDoD'; TokenCloud = 'USGovHigh' }
+            @{ Stored = 'USGovHigh'; TokenCloud = 'Commercial' }
+            @{ Stored = 'Commercial'; TokenCloud = 'USGovHigh' }
+            @{ Stored = $null; TokenCloud = 'USGovHigh' }
+        ) {
+            param($Stored, $TokenCloud)
+            $script:ExistingTenant = [pscustomobject]@{
+                PartitionKey = 'Tenants'; RowKey = $script:TenantId; customerId = $script:TenantId
+                displayName = 'Contoso'; defaultDomainName = 'contoso.us'; delegatedPrivilegeStatus = 'directTenant'
+            }
+            if ($Stored) { $script:ExistingTenant | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue $Stored }
+
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $TokenCloud)
+
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $script:Written.Count | Should -Be 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 1 -ParameterFilter { $TenantId -eq $script:TenantId }
+        }
+
+        It 'leaves a legacy row without a cloud value untouched on a commercial refresh' {
             $script:ExistingTenant = [pscustomobject]@{
                 PartitionKey = 'Tenants'; RowKey = $script:TenantId; customerId = $script:TenantId
                 displayName = 'Contoso'; defaultDomainName = 'contoso.com'; delegatedPrivilegeStatus = 'directTenant'
             }
-            $null = Invoke-ExecAddTenant -Request (New-AddRequest)
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $null)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
             Should -Invoke Get-CIPPTenantCloudEnvironment -Times 0
             $script:Written[0].PSObject.Properties.Name | Should -Not -Contain 'cloudEnvironment'
         }
@@ -231,17 +374,18 @@ Describe 'Invoke-ExecAddTenant with the real detection helper' {
         Mock Get-CIPPAuthentication {}
         Mock Get-CIPPAzDataTableEntity {}
         Mock Add-CIPPAzDataTableEntity { $script:Written.Add($Entity) }
+        Mock Remove-CIPPDirectTenantToken {}
         Mock Write-LogMessage {}
         Mock New-CippQueueEntry { [pscustomobject]@{ RowKey = 'queue-1' } }
         Mock Start-CIPPOrchestrator {}
-        Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://graph.microsoft.com/*' } { New-GraphBatchResponse }
+        Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://*graph.microsoft.*/v1.0/$batch' } { New-GraphBatchResponse }
     }
 
     It 'stores USGovDoD for a DoD tenant' {
         Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://login.microsoftonline.com/*' } {
             [pscustomobject]@{ cloud_instance_name = 'microsoftonline.us'; tenant_region_scope = 'USGov'; tenant_region_sub_scope = 'DOD' }
         }
-        $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+        $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovDoD')
         $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
         $script:Written[0].cloudEnvironment | Should -Be 'USGovDoD'
         Should -Invoke Invoke-RestMethod -Times 1 -ParameterFilter { $Uri -eq "https://login.microsoftonline.com/$($script:TenantId)/v2.0/.well-known/openid-configuration" }
@@ -249,7 +393,7 @@ Describe 'Invoke-ExecAddTenant with the real detection helper' {
 
     It 'stores USGovHigh from the onmicrosoft.us initial domain when discovery is unreachable' {
         Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://login.microsoftonline.com/*' } { throw 'timed out' }
-        $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+        $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovHigh')
         $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
         $script:Written[0].cloudEnvironment | Should -Be 'USGovHigh'
     }
@@ -259,7 +403,18 @@ Describe 'Invoke-ExecAddTenant with the real detection helper' {
         Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://login.microsoftonline.com/*' } {
             [pscustomobject]@{ cloud_instance_name = 'microsoftonline.com'; tenant_region_scope = 'NA' }
         }
-        $null = Invoke-ExecAddTenant -Request (New-AddRequest)
+        $null = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'Commercial')
         $script:Written[0].cloudEnvironment | Should -Be 'Commercial'
+    }
+
+    It 'rejects a GCC High sign-in for a tenant discovery reports as commercial' {
+        Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://graph.microsoft.us/*' } { New-GraphBatchResponse -InitialDomain 'contoso.onmicrosoft.com' }
+        Mock Invoke-RestMethod -ParameterFilter { $Uri -like 'https://login.microsoftonline.com/*' } {
+            [pscustomobject]@{ cloud_instance_name = 'microsoftonline.com'; tenant_region_scope = 'NA' }
+        }
+        $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovHigh')
+        $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+        $script:Written.Count | Should -Be 0
+        Should -Invoke Remove-CIPPDirectTenantToken -Times 1
     }
 }

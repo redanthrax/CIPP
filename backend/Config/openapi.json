@@ -13841,6 +13841,10 @@
                     "type": "string",
                     "description": "Get tenant information from Microsoft Graph using bulk request"
                   },
+                  "cloudEnvironment": {
+                    "type": "string",
+                    "description": "Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user picked; absent means Commercial, as before. The token itself has to agree with it."
+                  },
                   "defaultDomainName": {
                     "type": "string"
                   },
@@ -44277,6 +44281,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "cloudEnvironment": {
+                    "type": "string",
+                    "description": "Direct government tenants (redanthrax/CIPP#2) consent against their cloud's authority with the Azure Government app. Absent or 'Commercial' keeps the commercial exchange exactly as before; anything else must be an exact cloud name, and the token endpoint then comes from the fixed map."
+                  },
                   "tenantId": {
                     "type": "string"
                   },
