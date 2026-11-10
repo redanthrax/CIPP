@@ -129,17 +129,6 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             $script:Written[0].cloudEnvironment | Should -BeExactly 'USGovDoD'
         }
 
-        It 'normalises case variant <Value> to the canonical value' -TestCases @(
-            @{ Value = 'usgovhigh'; Expected = 'USGovHigh' }
-            @{ Value = 'USGOVDOD'; Expected = 'USGovDoD' }
-            @{ Value = 'commercial'; Expected = 'Commercial' }
-        ) {
-            param($Value, $Expected)
-            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment $Value)
-            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
-            $script:Written[0].cloudEnvironment | Should -BeExactly $Expected
-        }
-
         It 'changes only cloudEnvironment on the stored row' {
             $Before = $script:Rows[0] | Select-Object *
             $null = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
@@ -197,6 +186,10 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             @{ Name = 'object without value'; Value = [pscustomobject]@{ label = 'USGovHigh' } }
             @{ Name = 'object with bad value'; Value = [pscustomobject]@{ label = 'US Government (DoD)'; value = 'DoD' } }
             @{ Name = 'number'; Value = 1 }
+            @{ Name = 'lower case'; Value = 'usgovhigh' }
+            @{ Name = 'upper case'; Value = 'USGOVDOD' }
+            @{ Name = 'lower case commercial'; Value = 'commercial' }
+            @{ Name = 'lower case in an autocomplete object'; Value = [pscustomobject]@{ label = 'x'; value = 'usgovdod' } }
         ) {
             param($Name, $Value)
             $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment $Value)
@@ -218,6 +211,13 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
         It 'lists the allowed values in the 400 message' {
             $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'nope')
             $Response.Body.Results | Should -Match 'Allowed values: Commercial, USGovHigh, USGovDoD'
+        }
+
+        It 'does not echo the rejected input back' {
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment '<img src=x onerror=alert(1)>')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.Results | Should -Not -Match 'onerror'
+            $Response.Body.Results | Should -Not -Match '<img'
         }
     }
 
