@@ -334,6 +334,69 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
         }
     }
 
+    # The commercial consent flow posts the Graph access token Entra returned for the delegated Graph
+    # scopes. Graph tokens are v1 tokens (iss sts.windows.net) and their aud is either the Graph URI or
+    # Graph's app id, depending on how the scope was named. Every shape must keep onboarding and
+    # re-authenticating commercial tenants working exactly as before #2.
+    Context 'commercial consent tokens in the shapes Entra issues' {
+        BeforeEach {
+            Mock Get-CIPPTenantCloudEnvironment { 'Commercial' }
+            $script:CommercialShapes = @(
+                @{ aud = 'https://graph.microsoft.com'; iss = "https://sts.windows.net/$($script:TenantId)/" }
+                @{ aud = '00000003-0000-0000-c000-000000000000'; iss = "https://sts.windows.net/$($script:TenantId)/" }
+                @{ aud = 'https://graph.microsoft.com/'; iss = "https://sts.windows.net/$($script:TenantId)/" }
+                @{ aud = '00000003-0000-0000-c000-000000000000'; iss = "https://login.microsoftonline.com/$($script:TenantId)/v2.0" }
+                @{ aud = 'https://graph.microsoft.com'; iss = "https://login.microsoftonline.com/$($script:TenantId)/v2.0" }
+            )
+        }
+
+        It 'adds a new commercial tenant for every token shape, with or without cloudEnvironment' {
+            foreach ($Shape in $script:CommercialShapes) {
+                foreach ($Cloud in @('Commercial', $null)) {
+                    $script:Written.Clear()
+                    $Token = New-TestJwt @{ aud = $Shape.aud; iss = $Shape.iss; tid = $script:TenantId; scp = 'Directory.ReadWrite.All'; ver = '1.0' }
+                    $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $Cloud -AccessToken $Token)
+                    $Response.StatusCode | Should -Be ([HttpStatusCode]::OK) -Because "aud $($Shape.aud) iss $($Shape.iss) cloud '$Cloud'"
+                    $script:Written[0].cloudEnvironment | Should -BeExactly 'Commercial'
+                }
+            }
+            Should -Invoke Invoke-RestMethod -Times 0 -ParameterFilter { $Uri -ne 'https://graph.microsoft.com/v1.0/$batch' }
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
+            Should -Invoke Start-CIPPOrchestrator -Times ($script:CommercialShapes.Count * 2) -Exactly
+        }
+
+        It 'refreshes an existing commercial direct tenant (stored <Stored>) for every token shape' -TestCases @(
+            @{ Stored = 'Commercial' }
+            @{ Stored = $null }
+        ) {
+            param($Stored)
+            foreach ($Shape in $script:CommercialShapes) {
+                $script:Written.Clear()
+                $script:ExistingTenant = [pscustomobject]@{
+                    PartitionKey = 'Tenants'; RowKey = $script:TenantId; customerId = $script:TenantId
+                    displayName = 'Contoso'; defaultDomainName = 'contoso.com'; delegatedPrivilegeStatus = 'directTenant'
+                }
+                if ($Stored) { $script:ExistingTenant | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue $Stored }
+                $Token = New-TestJwt @{ aud = $Shape.aud; iss = $Shape.iss; tid = $script:TenantId }
+                $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $null -AccessToken $Token)
+                $Response.StatusCode | Should -Be ([HttpStatusCode]::OK) -Because "aud $($Shape.aud) iss $($Shape.iss)"
+                $script:Written.Count | Should -Be 1
+            }
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
+            Should -Invoke Get-CIPPTenantCloudEnvironment -Times 0
+        }
+
+        It 'never calls the commercial Graph host for a government selection, even when the token names no cloud' {
+            # aud = Graph's app id and a v1 issuer say nothing about the cloud: the selection decides the
+            # host, and a commercial token simply fails there (Graph validates it).
+            Mock Get-CIPPTenantCloudEnvironment { 'USGovHigh' }
+            $Token = New-TestJwt @{ aud = '00000003-0000-0000-c000-000000000000'; iss = 'https://sts.windows.net/x/'; tid = $script:TenantId }
+            $null = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud 'USGovHigh' -AccessToken $Token)
+            Should -Invoke Invoke-RestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq 'https://graph.microsoft.us/v1.0/$batch' }
+            Should -Invoke Invoke-RestMethod -Times 0 -ParameterFilter { $Uri -like '*graph.microsoft.com*' }
+        }
+    }
+
     Context 'blocked GDAP conversion' {
         It 'rejects the conversion without detecting or writing' {
             $script:ExistingTenant = [pscustomobject]@{
