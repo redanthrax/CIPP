@@ -22,6 +22,18 @@ function Invoke-ExecGovAppCredentials {
         $Request.Headers.origin ?? $Request.Headers.referer?.TrimEnd('/')
     }
 
+    # The Azure Government app signs in to every government direct tenant, and only an unrestricted
+    # caller can add those tenants (ExecAddTenant): replacing its credentials needs the same scope.
+    if ($Action -in @('Save', 'GenerateCertificate')) {
+        $AllowedTenants = Test-CIPPAccess -Request $Request -TenantList
+        if ($AllowedTenants -notcontains 'AllTenants') {
+            return [HttpResponseContext]@{
+                StatusCode = [HttpStatusCode]::Forbidden
+                Body       = @{ Results = 'Changing the Azure Government app credentials requires unrestricted tenant access.' }
+            }
+        }
+    }
+
     try {
         switch ($Action) {
             'Status' {
