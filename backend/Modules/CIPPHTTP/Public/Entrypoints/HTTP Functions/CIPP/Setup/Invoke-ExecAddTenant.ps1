@@ -28,6 +28,27 @@ function Invoke-ExecAddTenant {
         $ServiceAccount = $Request.body.username ?? ''
         $AuthDate = (Get-Date).ToUniversalTime()
 
+        # Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user
+        # picked; absent means Commercial, as before. The token itself has to agree with it.
+        $RequestedCloud = if ($null -eq $Request.body.cloudEnvironment) { 'Commercial' } else { $Request.body.cloudEnvironment }
+        $TokenCloud = $null
+        $TokenCloudError = $null
+        try {
+            if ($RequestedCloud -isnot [string]) { throw 'Invalid cloudEnvironment.' }
+            $TokenEndpoint = Get-CIPPCloudEndpoint -CloudEnvironment $RequestedCloud
+            $TokenInfo = Get-CIPPAccessTokenCloudEnvironment -AccessToken ([string]$Request.body.accessToken)
+            $RequestedFamily = if ($TokenEndpoint.IsGovernment) { 'Government' } else { 'Commercial' }
+            if ($TokenInfo.CloudEnvironment -and $TokenInfo.CloudEnvironment -cne $TokenEndpoint.CloudEnvironment) {
+                throw "The sign-in token is for $($TokenInfo.CloudEnvironment), not the selected $($TokenEndpoint.CloudEnvironment)."
+            }
+            if ($TokenInfo.Family -and $TokenInfo.Family -ne $RequestedFamily) {
+                throw "The sign-in token is from the $($TokenInfo.Family) cloud, not the selected $($TokenEndpoint.CloudEnvironment)."
+            }
+            $TokenCloud = $TokenEndpoint.CloudEnvironment
+        } catch {
+            $TokenCloudError = $_.Exception.Message
+        }
+
         # Get the Tenants table
         $TenantsTable = Get-CippTable -tablename 'Tenants'
         #force a refresh of the authentication info
@@ -50,6 +71,21 @@ function Invoke-ExecAddTenant {
             $Results = @{'message' = "$($ExistingTenant.displayName) is already onboarded as a GDAP tenant and cannot be converted to a Direct Tenant. To manage it as a Direct Tenant, remove the tenant first under Settings > Tenants, then add it again using the Direct Tenant flow."; 'severity' = 'error' }
             $StatusCode = [HttpStatusCode]::BadRequest
             Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked conversion of GDAP tenant $($ExistingTenant.displayName) to a Direct Tenant, attempted by $ServiceAccount." -Sev 'Warning'
+        } elseif (-not $TokenCloud) {
+            # The token's cloud could not be established or contradicts the selected cloud. The sign-in
+            # already stored its refresh token; it is not trusted for any cloud, so discard it.
+            Remove-CIPPDirectTenantToken -TenantId $tenantId
+            Write-LogMessage -tenantid $tenantId -API 'NewTenant' -message "Blocked adding or refreshing tenant $tenantId with ${ServiceAccount}: $TokenCloudError" -Sev 'Warning'
+            $Results = @{'message' = "The sign-in could not be verified for the selected cloud: $TokenCloudError Choose the cloud the tenant is in and sign in again."; 'severity' = 'error' }
+            $StatusCode = [HttpStatusCode]::BadRequest
+        } elseif ($ExistingTenant -and $TokenCloud -cne $(if ($ExistingTenant.cloudEnvironment) { [string]$ExistingTenant.cloudEnvironment } elseif ([string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD)) { 'Commercial' } else { Get-CIPPPartnerCloudEnvironment })) {
+            # A refresh signed in to a different cloud than the one stored for the tenant. The new refresh
+            # token does not work for the stored cloud, so it is discarded rather than kept.
+            Remove-CIPPDirectTenantToken -TenantId $tenantId
+            $StoredCloud = if ($ExistingTenant.cloudEnvironment) { $ExistingTenant.cloudEnvironment } else { 'the partner cloud' }
+            Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked refreshing $($ExistingTenant.displayName): $ServiceAccount signed in to $TokenCloud but the tenant is stored as $StoredCloud. The new refresh token was discarded." -Sev 'Warning'
+            $Results = @{'message' = "$($ExistingTenant.displayName) is stored as $StoredCloud, but the sign-in was for $TokenCloud. Sign in again choosing $StoredCloud, or change the tenant's cloud environment first."; 'severity' = 'error' }
+            $StatusCode = [HttpStatusCode]::BadRequest
         } elseif ($ExistingTenant) {
             # Existing direct tenant - refresh the stored credentials and service account details.
             $ExistingTenant | Add-Member -NotePropertyName 'directTenantUserPrincipalName' -NotePropertyValue $ServiceAccount -Force
@@ -81,7 +117,8 @@ function Invoke-ExecAddTenant {
                     requests = $BulkRequests
                 } | ConvertTo-Json -Depth 10
 
-                $BulkResponse = Invoke-RestMethod -Uri 'https://graph.microsoft.com/v1.0/$batch' -Headers $headers -Method POST -Body $BulkBody -ContentType 'application/json' -ErrorAction Stop
+                # The Graph host of the token's cloud, from the fixed map - never from the request.
+                $BulkResponse = Invoke-RestMethod -Uri "$($TokenEndpoint.GraphUrl)/v1.0/`$batch" -Headers $headers -Method POST -Body $BulkBody -ContentType 'application/json' -ErrorAction Stop
 
                 # Parse bulk response
                 $OrgResponse = ($BulkResponse.responses | Where-Object { $_.id -eq 'organization' }).body.value
@@ -108,12 +145,36 @@ function Invoke-ExecAddTenant {
                     })
             }
 
-            # Record which Microsoft cloud the tenant lives in. Detection must never block adding the tenant.
+            # Record which Microsoft cloud the tenant lives in. The token (which just worked against that
+            # cloud's Graph host) is the strongest evidence; discovery has to agree with it (redanthrax/CIPP#2):
+            #   - commercial vs government disagreement: reject, discard the token. Picking either side
+            #     would store a tenant under credentials or hosts that do not match it.
+            #   - GCC High vs DoD: keep the token's cloud. Discovery separates them only by a region
+            #     sub-scope and its domain fallback cannot tell them apart at all (#1), while the token's
+            #     audience names the exact Graph host it was accepted by.
+            # GCC Moderate is Commercial on both sides. A detection that throws (it is built not to)
+            # leaves the token's cloud.
+            $CloudEnvironment = $TokenCloud
             try {
-                $CloudEnvironment = Get-CIPPTenantCloudEnvironment -TenantId $tenantId -InitialDomainName $initialDomainName
+                $DetectedCloud = Get-CIPPTenantCloudEnvironment -TenantId $tenantId -InitialDomainName $initialDomainName
             } catch {
-                Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Failed to detect the cloud environment for $displayName, defaulting to Commercial: $($_.Exception.Message)" -Sev 'Warning'
-                $CloudEnvironment = 'Commercial'
+                $DetectedCloud = $null
+                Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Failed to detect the cloud environment for $displayName, using $TokenCloud from the sign-in token: $($_.Exception.Message)" -Sev 'Warning'
+            }
+            if ($DetectedCloud) {
+                $DetectedFamily = if ($DetectedCloud -ceq 'Commercial') { 'Commercial' } else { 'Government' }
+                $TokenFamily = if ($TokenCloud -ceq 'Commercial') { 'Commercial' } else { 'Government' }
+                if ($DetectedFamily -ne $TokenFamily) {
+                    Remove-CIPPDirectTenantToken -TenantId $tenantId
+                    Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Blocked adding tenant $displayName with ${ServiceAccount}: the sign-in token is for $TokenCloud but the tenant's discovery data says $DetectedCloud. The stored token was discarded." -Sev 'Warning'
+                    return ([HttpResponseContext]@{
+                            StatusCode = [HttpStatusCode]::BadRequest
+                            Body       = @{ 'message' = "The sign-in was for $TokenCloud, but $displayName looks like a $DetectedCloud tenant. Choose the cloud the tenant is in and sign in again."; 'severity' = 'error' }
+                        })
+                }
+                if ($DetectedCloud -cne $TokenCloud) {
+                    Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Discovery reports $DetectedCloud for $displayName but the sign-in token is for $TokenCloud. Storing $TokenCloud." -Sev 'Info'
+                }
             }
 
             # Create new tenant object
@@ -139,8 +200,20 @@ function Invoke-ExecAddTenant {
 
             # Add tenant to table
             Add-CIPPAzDataTableEntity @TenantsTable -Entity $NewTenant -Force | Out-Null
+            Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Added tenant $displayName ($defaultDomainName) with Direct Tenant status ($CloudEnvironment)." -Sev 'Info'
+
+            if ($CloudEnvironment -cne 'Commercial') {
+                # The permission push grants permissions to the SAM app over commercial Graph hosts; it
+                # neither knows the Azure Government app nor routes government hosts yet (#3). The
+                # government app's permissions come from the admin consent given at sign-in.
+                Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Skipped the permission push for $displayName ($CloudEnvironment): not supported for government tenants yet. The Azure Government app uses the permissions consented at sign-in." -Sev 'Info'
+                $Results = @{'message' = "Successfully added tenant $displayName ($defaultDomainName) to the tenant list with Direct Tenant status ($CloudEnvironment)."; 'severity' = 'success' }
+                return ([HttpResponseContext]@{
+                        StatusCode = $StatusCode
+                        Body       = $Results
+                    })
+            }
             $Results = @{'message' = "Successfully added tenant $displayName ($defaultDomainName) to the tenant list with Direct Tenant status. Permission refresh queued, the tenant will be available shortly."; 'severity' = 'success' }
-            Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Added tenant $displayName ($defaultDomainName) with Direct Tenant status." -Sev 'Info'
 
             # Trigger CPV refresh to push remaining permissions to this specific tenant
             try {
