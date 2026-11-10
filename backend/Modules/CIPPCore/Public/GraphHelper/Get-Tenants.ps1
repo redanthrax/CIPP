@@ -307,12 +307,15 @@ function Get-Tenants {
                 $OrgName = $PartnerOrg.displayName ?? $Partner.displayName
                 $PartnerDisplayName = if ($Partners.Count -gt 1 -and $OrgName) { "*Partner Tenant ($OrgName)" } else { '*Partner Tenant' }
                 $PartnerDefaultDomain = ($PartnerOrg.verifiedDomains | Where-Object { $_.isDefault -eq $true }).name
+                # The partner row is rewritten whole here, so carry over a detected or manually set cloud.
+                $ExistingPartner = $ExistingByCustomerId["$($Partner.RowKey)"]
                 $PartnerTenant = [PSCustomObject]@{
                     RowKey             = $Partner.RowKey
                     PartitionKey       = 'Tenants'
                     customerId         = $Partner.RowKey
                     defaultDomainName  = $PartnerDefaultDomain
                     initialDomainName  = ($PartnerOrg.verifiedDomains | Where-Object { $_.isInitial -eq $true }).name
+                    cloudEnvironment   = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { 'Commercial' }
                     displayName        = $PartnerDisplayName
                     domains            = 'PartnerTenant'
                     partnerTenantId    = "$($Partner.RowKey)"
@@ -346,6 +349,9 @@ function Get-Tenants {
     }
     if ($PartnerTenantState.state -eq 'owntenant' -and $IncludedTenantsCache.RowKey.count -eq 0) {
         $Domains = New-GraphGetRequest -uri 'https://graph.microsoft.com/beta/domains' -tenantid $env:TenantID -NoAuthCheck:$true
+        # The cache read above may have been narrowed by -TenantFilter, so the own-tenant row can exist
+        # even when nothing came back; read it so a detected or manually set cloud survives the rewrite.
+        $ExistingPartner = Get-CIPPAzDataTableEntity @TenantsTable -Filter "PartitionKey eq 'Tenants' and RowKey eq '$(ConvertTo-CIPPODataFilterValue -Value $env:TenantID)'"
 
         $IncludedTenantsCache = @([PSCustomObject]@{
                 RowKey            = $env:TenantID
@@ -353,6 +359,7 @@ function Get-Tenants {
                 customerId        = $env:TenantID
                 defaultDomainName = ($Domains | Where-Object { $_.isInitial -eq $true }).id
                 initialDomainName = ($Domains | Where-Object { $_.isInitial -eq $true }).id
+                cloudEnvironment  = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { 'Commercial' }
                 displayName       = ($Domains | Where-Object { $_.isInitial -eq $true }).id
                 domains           = 'PartnerTenant'
                 Excluded          = $false
