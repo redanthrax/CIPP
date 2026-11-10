@@ -111,7 +111,13 @@ function Invoke-ExecListAppId {
         Write-LogMessage -message 'Failed to retrieve organization info and authenticated user' -LogData (Get-CippException -Exception $_) -sev 'Warning'
     }
 
+    # The Azure Government app's client id (redanthrax/CIPP#2) for the direct-tenant consent flow.
+    # A client id is public; the secret and certificate never leave the backend. Absent when not set up.
+    $GovApplicationId = $null
+    try { $GovApplicationId = (Get-CIPPGovAppCredential).ApplicationId } catch { Write-Information "Could not read the Azure Government app id: $($_.Exception.Message)" }
+
     $Results = @{
+        govApplicationId               = $GovApplicationId
         applicationId                  = $env:ApplicationID
         tenantId                       = $env:TenantID
         orgName                        = $OrgInfo.displayName

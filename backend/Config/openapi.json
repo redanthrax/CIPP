@@ -26257,6 +26257,79 @@
         "x-cipp-any-tenant": true
       }
     },
+    "/api/ExecGovAppCredentials": {
+      "post": {
+        "summary": "Status and configuration of the Azure Government app registration used for direct GCC High and DoD tenants.",
+        "operationId": "ExecGovAppCredentials",
+        "tags": [
+          "CIPP > Setup"
+        ],
+        "description": "Actions: Status (default) reports what is configured without returning any secret; Save stores the application id and, when given, a new client secret; GenerateCertificate creates a certificate for the app, stores its private key next to the SAM certificate and returns only the public certificate to upload to the app registration.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Action": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "applicationSecret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Not described statically: this endpoint returns the upstream response as-is, so its fields are determined by the upstream API rather than by CIPP. Call the endpoint to see the actual shape, or add a response schema in backend/Config/openapi-overrides."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.AppSettings.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
     "/api/ExecGraphExplorerPreset": {
       "post": {
         "summary": "ExecGraphExplorerPreset",
