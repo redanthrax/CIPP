@@ -4,6 +4,9 @@ import { Alert, Button, Typography, CircularProgress, Box } from '@mui/material'
 import { ApiGetCall } from '../../api/ApiCall'
 import { CippCopyToClipBoard } from './CippCopyToClipboard'
 import { CippApiDialog } from './CippApiDialog'
+import { getCloudEnvironment } from '../../utils/cloud-environments'
+
+const GUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 export const CIPPM365OAuthButton = ({
   onAuthSuccess,
@@ -20,7 +23,12 @@ export const CIPPM365OAuthButton = ({
   disabled = false,
   // Extra fields merged into the automatic ExecUpdateRefreshToken call after sign-in.
   tokenUpdateBody = {},
+  // Which Microsoft cloud to sign in to (redanthrax/CIPP#2). A government cloud signs in at its own
+  // authority with the Azure Government app instead of CIPP-SAM.
+  cloudEnvironment = 'Commercial',
 }) => {
+  const cloud = getCloudEnvironment(cloudEnvironment)
+  const isGovCloud = !cloud || cloud.isGovernment
   const [authInProgress, setAuthInProgress] = useState(false)
   const [authError, setAuthError] = useState(null)
   const [deviceCodeInfo, setDeviceCodeInfo] = useState(null)
@@ -42,6 +50,14 @@ export const CIPPM365OAuthButton = ({
     queryKey: 'listAppId',
     waiting: true,
   })
+
+  // The app to sign in with: an explicit applicationId, else CIPP-SAM for Commercial or the Azure
+  // Government app for GCC High / DoD. Never CIPP-SAM for a government cloud.
+  const configuredAppId = isGovCloud
+    ? appIdInfo?.data?.govApplicationId
+    : appIdInfo?.data?.applicationId
+  const govAppMissing =
+    !applicationId && cloud?.isGovernment && !appIdInfo.isLoading && !GUID_PATTERN.test(configuredAppId ?? '')
 
   // Closing the device login window does not cancel anything - the device code stays
   // valid server side until it expires and can be completed in any browser. So the
@@ -332,6 +348,7 @@ export const CIPPM365OAuthButton = ({
       username: username,
       tenantId: tenantId,
       onmicrosoftDomain: onmicrosoftDomain,
+      cloudEnvironment: cloud?.value ?? 'Commercial',
     }
 
     setTokens(tokenResult)
@@ -362,18 +379,32 @@ export const CIPPM365OAuthButton = ({
     })
 
     // Only refetch app ID if not already present
-    if (!applicationId && !appIdInfo?.data?.applicationId) {
+    if (!applicationId && !configuredAppId) {
       await appIdInfo.refetch()
     }
 
     // Get the application ID to use
-    const appId = applicationId || appIdInfo?.data?.applicationId
+    const appId = applicationId || configuredAppId
+
+    if (!cloud || (cloud.isGovernment && !GUID_PATTERN.test(appId ?? ''))) {
+      const error = {
+        errorCode: 'gov_app_not_configured',
+        errorMessage: !cloud
+          ? 'Unknown cloud environment.'
+          : 'Azure Government app not configured. Add its application ID and a client secret or certificate under CIPP > Advanced > Authentication > Credentials.',
+        timestamp: new Date().toISOString(),
+      }
+      setAuthError(error)
+      if (onAuthError) onAuthError(error)
+      setAuthInProgress(false)
+      return
+    }
 
     // Generate MSAL-like authentication parameters
     const msalConfig = {
       auth: {
         clientId: appId,
-        authority: `https://login.microsoftonline.com/organizations`,
+        authority: `${cloud.authority}/organizations`,
         redirectUri: `${window.location.origin}/authredirect`,
       },
     }
@@ -458,7 +489,7 @@ export const CIPPM365OAuthButton = ({
     // instead of being told up front that the account cannot be used. It also matches the
     // authority the device code flow uses.
     const authUrl =
-      `https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?` +
+      `${cloud.authority}/organizations/oauth2/v2.0/authorize?` +
       `client_id=${appId}` +
       `&response_type=code` +
       `&redirect_uri=${encodeURIComponent(window.location.origin)}/authredirect` +
@@ -510,8 +541,9 @@ export const CIPPM365OAuthButton = ({
             },
             body: JSON.stringify({
               tokenRequest,
-              tokenUrl: 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token',
+              tokenUrl: `${cloud.authority}/organizations/oauth2/v2.0/token`,
               tenantId: appId, // Pass the tenant ID to retrieve the correct client secret
+              cloudEnvironment: cloud.value,
             }),
           })
 
@@ -714,6 +746,7 @@ export const CIPPM365OAuthButton = ({
   useEffect(() => {
     if (
       useDeviceCode &&
+      !isGovCloud &&
       autoStartDeviceLogon &&
       !codeRetrievalInProgress &&
       !deviceCodeInfo &&
@@ -724,6 +757,7 @@ export const CIPPM365OAuthButton = ({
     }
   }, [
     useDeviceCode,
+    isGovCloud,
     autoStartDeviceLogon,
     codeRetrievalInProgress,
     deviceCodeInfo,
@@ -743,6 +777,19 @@ export const CIPPM365OAuthButton = ({
             The Application ID is not valid. Please check your configuration.
           </Alert>
         )}
+
+      {govAppMissing && (
+        <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+          Azure Government app not configured. Signing in to a {cloud.label} tenant needs an app
+          registered in Azure Government. Add its application ID and a client secret or certificate
+          under CIPP &gt; Advanced &gt; Authentication &gt; Credentials.
+        </Alert>
+      )}
+      {cloud?.isGovernment && useDeviceCode && (
+        <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+          Device code sign-in is not available for {cloud.label} tenants.
+        </Alert>
+      )}
 
       {showResults && (
         <Box sx={{
@@ -887,10 +934,9 @@ export const CIPPM365OAuthButton = ({
             (appIdInfo.isLoading ||
               authInProgress ||
               codeRetrievalInProgress ||
-              (!applicationId &&
-                !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
-                  appIdInfo?.data?.applicationId
-                ))))
+              (!applicationId && !GUID_PATTERN.test(configuredAppId ?? '')) ||
+              !cloud ||
+              (isGovCloud && useDeviceCode)))
         }
         onClick={() => {
           if (canRestartDeviceLogin) {
