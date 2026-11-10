@@ -10,6 +10,7 @@ const Page = () => {
   const simpleColumns = [
     "displayName",
     "defaultDomainName",
+    "cloudEnvironment",
     "tenantGroups",
     "portal_m365",
     "portal_exchange",
@@ -35,6 +36,32 @@ const Page = () => {
       label: "Configure Backup",
       link: "/tenant/manage/configuration-backup?tenantFilter=[defaultDomainName]",
       icon: <CippIcons.Edit />,
+    },
+    {
+      label: "Set Cloud Environment",
+      type: "POST",
+      url: "/api/EditTenantCloudEnvironment",
+      data: { customerId: "customerId" },
+      confirmText:
+        "Select the Microsoft cloud [displayName] lives in. This overrides the value detected when the tenant was added. DoD tenants may be detected as GCC High and need to be set here.",
+      icon: <CippIcons.Edit />,
+      color: "info",
+      hideBulk: true,
+      fields: [
+        {
+          type: "autoComplete",
+          name: "cloudEnvironment",
+          label: "Cloud Environment",
+          multiple: false,
+          creatable: false,
+          required: true,
+          options: [
+            { label: "Commercial", value: "Commercial" },
+            { label: "US Government (GCC High)", value: "USGovHigh" },
+            { label: "US Government (DoD)", value: "USGovDoD" },
+          ],
+        },
+      ],
     },
     {
       label: "Delete Capabilities Cache",

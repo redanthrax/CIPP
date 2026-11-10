@@ -222,6 +222,8 @@ function Get-Tenants {
                     relationshipCount        = $_.Count
                     defaultDomainName        = $defaultDomainName
                     initialDomainName        = $initialDomainName
+                    # The row is rewritten whole here, so carry over a detected or manually set cloud.
+                    cloudEnvironment         = if ($ExistingTenantInfo.cloudEnvironment) { $ExistingTenantInfo.cloudEnvironment } else { 'Commercial' }
                     hasAutoExtend            = $AutoExtend
                     delegatedPrivilegeStatus = 'granularDelegatedAdminPrivileges'
                     domains                  = ''
@@ -303,7 +305,17 @@ function Get-Tenants {
     $Scoped = $script:CippAllowedTenantsStorage -and $null -ne $script:CippAllowedTenantsStorage.Value
     $Tenants = foreach ($Tenant in $IncludedTenantsCache) {
         if ($Scoped -and $script:CippAllowedTenantsStorage.Value -notcontains $Tenant.customerId) { continue }
-        if ($null -ne $Tenant.defaultDomainName -and ($Tenant.defaultDomainName -notmatch 'Domain Error' -or $IncludeAll.IsPresent)) { $Tenant }
+        if ($null -ne $Tenant.defaultDomainName -and ($Tenant.defaultDomainName -notmatch 'Domain Error' -or $IncludeAll.IsPresent)) {
+            # Rows written before cloudEnvironment existed have no value - those are Commercial tenants.
+            if ([string]::IsNullOrEmpty($Tenant.cloudEnvironment)) {
+                if ($Tenant -is [System.Collections.IDictionary]) {
+                    $Tenant['cloudEnvironment'] = 'Commercial'
+                } else {
+                    $Tenant | Add-Member -NotePropertyName 'cloudEnvironment' -NotePropertyValue 'Commercial' -Force
+                }
+            }
+            $Tenant
+        }
     }
     if ($TenantFilter) { $Tenants = @($Tenants).Where($IncludedTenantFilter) }
     if (@($Tenants).Count -le 1) { return $Tenants }
