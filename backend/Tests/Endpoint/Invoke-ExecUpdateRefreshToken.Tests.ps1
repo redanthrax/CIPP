@@ -170,3 +170,84 @@ Describe 'Invoke-ExecUpdateRefreshToken existing direct tenant' {
         Should -Invoke Set-CippKeyVaultSecret -Times 1
     }
 }
+
+# redanthrax/CIPP#2: a direct-tenant sign-in with a partner tenant account must not replace the partner
+# refresh token (which backs every GDAP tenant) or queue a partner permission push.
+Describe 'Invoke-ExecUpdateRefreshToken direct-tenant sign-in' {
+    BeforeAll {
+        $script:SavedTenantId = $env:TenantID
+        $script:SavedStorage = $env:AzureWebJobsStorage
+        $script:SavedNonLocal = $env:NonLocalHostAzurite
+        $script:SavedRefresh = $env:RefreshToken
+        $env:TenantID = $script:Partner
+        $env:AzureWebJobsStorage = 'DefaultEndpointsProtocol=https;AccountName=x'
+        $env:NonLocalHostAzurite = $null
+
+        function Invoke-SignIn($TenantId, $DirectTenant) {
+            $Body = [pscustomobject]@{ tenantId = $TenantId; refreshtoken = 'new-token' }
+            if ($null -ne $DirectTenant) { $Body | Add-Member -NotePropertyName directTenant -NotePropertyValue $DirectTenant }
+            Invoke-ExecUpdateRefreshToken -Request ([pscustomobject]@{
+                    Params  = @{ CIPPEndpoint = 'ExecUpdateRefreshToken' }
+                    Headers = @{}
+                    Body    = $Body
+                })
+        }
+    }
+    AfterAll {
+        $env:TenantID = $script:SavedTenantId
+        $env:AzureWebJobsStorage = $script:SavedStorage
+        $env:NonLocalHostAzurite = $script:SavedNonLocal
+        $env:RefreshToken = $script:SavedRefresh
+    }
+    BeforeEach {
+        $env:RefreshToken = 'partner-token'
+        $script:TenantAccess = @('AllTenants')
+        Mock Set-CippKeyVaultSecret { }
+        Mock Write-LogMessage { }
+        Mock Start-CIPPOrchestrator { }
+        Mock Clear-CippTokenCache { }
+        Mock Get-CIPPAzDataTableEntity { }
+    }
+
+    It 'refuses a partner tenant account (directTenant <DirectTenant>) and leaves the partner token alone' -TestCases @(
+        @{ DirectTenant = $true }
+        @{ DirectTenant = 'true' }
+    ) {
+        param($DirectTenant)
+        $Response = Invoke-SignIn $script:Partner $DirectTenant
+        $Response.StatusCode | Should -Be 400
+        $Response.Body.Results.state | Should -Be 'failed'
+        Should -Invoke Set-CippKeyVaultSecret -Times 0
+        Should -Invoke Start-CIPPOrchestrator -Times 0
+        Should -Invoke Clear-CippTokenCache -Times 0
+        $env:RefreshToken | Should -Be 'partner-token'
+        Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Warning' -and $message -like '*partner tenant account*' }
+    }
+
+    It 'refuses a partner tenant account in dev storage too' {
+        $env:AzureWebJobsStorage = 'UseDevelopmentStorage=true'
+        try {
+            Mock Add-CIPPAzDataTableEntity { }
+            (Invoke-SignIn $script:Partner $true).StatusCode | Should -Be 400
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+            $env:RefreshToken | Should -Be 'partner-token'
+        } finally {
+            $env:AzureWebJobsStorage = 'DefaultEndpointsProtocol=https;AccountName=x'
+        }
+    }
+
+    It 'stores a direct-tenant sign-in for another tenant' {
+        (Invoke-SignIn '44444444-4444-4444-4444-444444444444' $true).StatusCode | Should -Be 200
+        Should -Invoke Set-CippKeyVaultSecret -Times 1 -ParameterFilter { $Name -eq '44444444-4444-4444-4444-444444444444' }
+    }
+
+    It 'still updates the partner token from the partner sign-in (directTenant <DirectTenant>)' -TestCases @(
+        @{ DirectTenant = $null }
+        @{ DirectTenant = $false }
+    ) {
+        param($DirectTenant)
+        (Invoke-SignIn $script:Partner $DirectTenant).StatusCode | Should -Be 200
+        Should -Invoke Set-CippKeyVaultSecret -Times 1 -ParameterFilter { $Name -eq 'RefreshToken' }
+        Should -Invoke Start-CIPPOrchestrator -Times 1
+    }
+}

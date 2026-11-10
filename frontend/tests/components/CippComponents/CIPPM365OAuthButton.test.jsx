@@ -397,10 +397,35 @@ describe('CIPPM365OAuthButton government cloud', () => {
         refreshtoken: 'r',
         cloudEnvironment: 'Commercial',
         accessToken: `h.${payload}.s`,
+        // the partner sign-in is not a direct-tenant sign-in
+        directTenant: false,
       })
     )
     expect(onAuthSuccess).toHaveBeenCalledWith(
       expect.objectContaining({ cloudEnvironment: 'Commercial', accessToken: `h.${payload}.s` })
+    )
+  })
+
+  it('tells the backend a direct-tenant sign-in is one, so it can refuse a partner account', async () => {
+    api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
+    const payload = btoa(JSON.stringify({ tid: 'tid-1', aud: 'https://graph.microsoft.com' }))
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: `h.${payload}.s`, refresh_token: 'r', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWithTheme(<CIPPM365OAuthButton onAuthSuccess={vi.fn()} directTenant />)
+
+    fireEvent.click(authButton())
+    await act(async () => {})
+    const state = new URL(popup.location).searchParams.get('state')
+    await act(async () => {
+      lastChannel().onmessage({ data: { type: 'auth_code', code: 'abc', state } })
+    })
+
+    const store = fetchMock.mock.calls.find(([url]) => url === '/api/ExecUpdateRefreshToken')
+    expect(JSON.parse(store[1].body)).toEqual(
+      expect.objectContaining({ tenantId: 'tid-1', directTenant: true })
     )
   })
 
