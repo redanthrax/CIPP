@@ -13156,7 +13156,7 @@
                 "properties": {
                   "accessToken": {
                     "type": "string",
-                    "description": "Get tenant information from Microsoft Graph using bulk request"
+                    "description": "Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user picked; absent means Commercial, as before. The token itself has to agree with it."
                   },
                   "cloudEnvironment": {
                     "type": "string",
@@ -42565,6 +42565,12 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "accessToken": {
+                    "type": "string"
+                  },
+                  "cloudEnvironment": {
+                    "type": "string"
+                  },
                   "refreshtoken": {
                     "type": "string"
                   },

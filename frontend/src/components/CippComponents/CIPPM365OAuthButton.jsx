@@ -603,9 +603,28 @@ export const CIPPM365OAuthButton = ({
                   refreshtoken: tokenData.refresh_token,
                   tenantMode: tokenData.tenantMode,
                   allowPartnerTenantManagement: tokenData.allowPartnerTenantManagement,
+                  // An existing direct tenant's token is only replaced by a sign-in to that tenant in
+                  // its stored cloud; the backend checks both before storing (redanthrax/CIPP#2).
+                  cloudEnvironment: cloud.value,
+                  accessToken: tokenData.access_token,
                 }),
               })
 
+              if (refreshResponse.status === 400) {
+                // Refused before anything was stored: stop here so the tenant keeps its working token.
+                const refusal = await refreshResponse.json().catch(() => ({}))
+                const error = {
+                  errorCode: 'refresh_token_refused',
+                  errorMessage:
+                    refusal?.Results?.resultText ||
+                    refusal?.Results ||
+                    'The sign-in was refused and the stored credentials were not changed.',
+                  timestamp: new Date().toISOString(),
+                }
+                setAuthError(error)
+                if (onAuthError) onAuthError(error)
+                return
+              }
               if (!refreshResponse.ok) {
                 console.warn('Failed to store refresh token, but continuing with authentication')
               } else {
