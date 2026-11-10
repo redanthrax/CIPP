@@ -33,10 +33,11 @@ function Get-CIPPTenantCloudEnvironment {
         [string]$InitialDomainName
     )
 
-    $GuidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    $DomainPattern = '^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+    # \z, not $: .NET's $ also matches before a trailing newline, which would let "id`n" validate.
+    $GuidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z'
+    $DomainPattern = '^(?=.{1,253}\z)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}\z'
 
-    $FromDomain = if ($InitialDomainName -match $DomainPattern -and $InitialDomainName -match '\.onmicrosoft\.us$') { 'USGovHigh' } else { 'Commercial' }
+    $FromDomain = if ($InitialDomainName -match $DomainPattern -and $InitialDomainName -match '\.onmicrosoft\.us\z') { 'USGovHigh' } else { 'Commercial' }
 
     if ([string]::IsNullOrWhiteSpace($TenantId) -or ($TenantId -notmatch $GuidPattern -and $TenantId -notmatch $DomainPattern)) {
         # Logging writes to a table and can fail; that must not turn into a throw here.
