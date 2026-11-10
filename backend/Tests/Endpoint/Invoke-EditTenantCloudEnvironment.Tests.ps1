@@ -33,6 +33,7 @@ BeforeAll {
     # An unknown tenant makes Get-Tenants rebuild from GDAP; stub that out as "no relationships"
     function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck, $ErrorAction) }
     function Get-AzDataTableEntity { param($Context, $Filter) }
+    function Clear-CippTokenCache { param($TenantFilter) }
     function Add-AzDataTableEntity { param($Context, $Entity, [switch]$Force) }
 
     $script:OriginalRefreshToken = $env:RefreshToken
@@ -90,6 +91,7 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
 
         Mock Test-CIPPAccess { $script:CallerTenants }
         Mock Write-LogMessage {}
+        Mock Clear-CippTokenCache { 0 }
         Mock Get-CippTable { @{ Context = $tablename } }
         Mock Get-CIPPAzDataTableEntity { Find-TenantRow -Filter $Filter }
         Mock Add-CIPPAzDataTableEntity { $script:Written.Add(($Entity | Select-Object *)) }
@@ -160,6 +162,11 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId 'fabrikam.us' -CloudEnvironment 'Commercial')
             $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
             $script:Written[0].RowKey | Should -Be $script:FabrikamId
+        }
+
+        It 'drops the tenant''s cached tokens so the new cloud takes effect (redanthrax/CIPP#2)' {
+            $null = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
+            Should -Invoke Clear-CippTokenCache -Times 1 -Exactly -ParameterFilter { $TenantFilter -eq $script:ContosoId }
         }
 
         It 'logs the change against the tenant' {

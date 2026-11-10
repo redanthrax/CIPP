@@ -23,6 +23,8 @@ function Get-GraphToken {
     if ([System.Environment]::GetEnvironmentVariable('CertificateAuthMode') -and -not $AppID -and -not $AppSecret) {
         $UseCertificate = $true
     }
+    # CIPP's own tokens (no explicit app credentials) follow the tenant's cloud; explicit callers do not.
+    $SamApp = -not $AppID -and -not $AppSecret
 
     $UseSharedTokenCache = ($SkipCache -ne $true) -and ($null -ne ('CIPP.CIPPTokenCache' -as [type]))
 
@@ -44,6 +46,34 @@ function Get-GraphToken {
         }
         $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$SharedTokenCacheKey|failed", 0)
         if ($CachedFailure.Found) { throw "Could not get token: $($CachedFailure.TokenPayloadJson)" }
+
+        # Government tenants (redanthrax/CIPP#2) are cached under their own cloud's key, never the
+        # commercial one above. The slow path leaves a marker with the tenant's cloud so later calls
+        # find that key without a table read. Commercial tenants have no marker.
+        if ($SamApp) {
+            $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker')
+            $CloudMarker = [CIPP.CIPPTokenCache]::Lookup($CloudMarkerKey, 0)
+            if ($CloudMarker.Found -and $CloudMarker.TokenPayloadJson -cne 'Commercial') {
+                $FastRoute = Get-CIPPCloudTokenRoute -CloudEnvironment $CloudMarker.TokenPayloadJson -Scope $scope -CachedOnly
+                if ($FastRoute) {
+                    $FastGrantType = if ($asApp -eq $true) { 'client_credentials' } else { 'refresh_token' }
+                    if ($FastRoute.UseCertificate -or ($UseCertificate -eq $true -and -not $FastRoute.UsesGovApp)) { $FastGrantType = "${FastGrantType}_certificate" }
+                    $FastKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, [string]$FastRoute.Scope, [bool]$asApp, [string]$FastRoute.ClientId, "$FastGrantType@$($FastRoute.CloudEnvironment)")
+                    $FastEntry = [CIPP.CIPPTokenCache]::Lookup($FastKey, 120)
+                    if ($FastEntry.Found -and -not [string]::IsNullOrWhiteSpace($FastEntry.TokenPayloadJson)) {
+                        try {
+                            $AccessToken = $FastEntry.TokenPayloadJson | ConvertFrom-Json -ErrorAction Stop
+                            if ($ReturnRefresh) { return $AccessToken }
+                            return @{ Authorization = "Bearer $($AccessToken.access_token)" }
+                        } catch {
+                            [CIPP.CIPPTokenCache]::Remove($FastKey)
+                        }
+                    }
+                    $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$FastKey|failed", 0)
+                    if ($CachedFailure.Found) { throw "Could not get token: $($CachedFailure.TokenPayloadJson)" }
+                }
+            }
+        }
     }
 
     # ── Slow path: need a new token — do table lookups + token acquisition ──
@@ -51,14 +81,16 @@ function Get-GraphToken {
     # all missing cache and independently fetching the same token).
     $LockAcquired = $false
     if ($UseSharedTokenCache -and $SharedTokenCacheKey) {
-        $LockAcquired = [CIPP.CIPPTokenCache]::AcquireLock($SharedTokenCacheKey, 30000)
+        # The key is rebuilt below once credentials and the tenant's cloud are known; release this one.
+        $LockKey = $SharedTokenCacheKey
+        $LockAcquired = [CIPP.CIPPTokenCache]::AcquireLock($LockKey, 30000)
         if ($LockAcquired) {
             # Double-check: another thread may have stored the token while we waited
             $SharedCacheEntry = [CIPP.CIPPTokenCache]::Lookup($SharedTokenCacheKey, 120)
             if ($SharedCacheEntry.Found -and -not [string]::IsNullOrWhiteSpace($SharedCacheEntry.TokenPayloadJson)) {
                 try {
                     $AccessToken = $SharedCacheEntry.TokenPayloadJson | ConvertFrom-Json -ErrorAction Stop
-                    [CIPP.CIPPTokenCache]::ReleaseLock($SharedTokenCacheKey)
+                    [CIPP.CIPPTokenCache]::ReleaseLock($LockKey)
                     $LockAcquired = $false
                     if ($ReturnRefresh) { return $AccessToken }
                     return @{ Authorization = "Bearer $($AccessToken.access_token)" }
@@ -68,7 +100,7 @@ function Get-GraphToken {
             }
             $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$SharedTokenCacheKey|failed", 0)
             if ($CachedFailure.Found) {
-                [CIPP.CIPPTokenCache]::ReleaseLock($SharedTokenCacheKey)
+                [CIPP.CIPPTokenCache]::ReleaseLock($LockKey)
                 $LockAcquired = $false
                 throw "Could not get token: $($CachedFailure.TokenPayloadJson)"
             }
@@ -183,25 +215,81 @@ function Get-GraphToken {
             }
         }
 
+        # Which cloud the tenant is in (redanthrax/CIPP#2). A direct tenant carries it on its row (read
+        # above); the partner tenant and GDAP tenants are always in the partner cloud, as are rows that
+        # predate the column. Commercial tenants on a commercial instance skip all of this.
+        $CloudRoute = $null
+        $LoginBase = 'https://login.microsoftonline.com'
+        if ($SamApp) {
+            $StoredCloud = if ($tenantid -ne $env:TenantID -and $clientType.delegatedPrivilegeStatus -eq 'directTenant') { [string](@($ClientType)[0].cloudEnvironment) } else { '' }
+            $PartnerIsCommercial = [string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD) -or $env:CIPP_PARTNER_CLOUD -ceq 'Commercial'
+            $TenantCloud = if (-not [string]::IsNullOrEmpty($StoredCloud)) { $StoredCloud } elseif ($PartnerIsCommercial) { 'Commercial' } else { Get-CIPPPartnerCloudEnvironment }
+            if (-not ($PartnerIsCommercial -and $TenantCloud -ceq 'Commercial')) {
+                # Throws - before any token request - for an unknown cloud, a non-Graph scope on a
+                # government tenant or a missing Azure Government app. Never falls back to commercial.
+                $CloudRoute = Get-CIPPCloudTokenRoute -CloudEnvironment $TenantCloud -Scope $scope
+                $scope = $CloudRoute.Scope
+                $LoginBase = $CloudRoute.Authority
+                $AuthBody.scope = $scope
+                if ($CloudRoute.UsesGovApp) {
+                    $GovCredential = Get-CIPPGovAppCredential
+                    $AuthBody.client_id = $GovCredential.ApplicationId
+                    $AuthBody.client_secret = $GovCredential.ApplicationSecret
+                    $UseCertificate = $CloudRoute.UseCertificate
+                }
+            }
+            if ($UseSharedTokenCache) {
+                if (-not $CloudMarkerKey) { $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker') }
+                if ($CloudRoute) {
+                    [CIPP.CIPPTokenCache]::Store($CloudMarkerKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
+                } else {
+                    [CIPP.CIPPTokenCache]::Remove($CloudMarkerKey)
+                }
+            }
+        }
+
         # Rebuild cache key after credential loading (env vars may have been set by Get-CIPPAuthentication)
         if ($UseSharedTokenCache) {
-            $CacheClientId = if ($AppID) { [string]$AppID } else { [string]$env:ApplicationID }
+            $CacheClientId = if ($AppID) { [string]$AppID } elseif ($CloudRoute) { [string]$AuthBody.client_id } else { [string]$env:ApplicationID }
             $GrantType = if ($asApp -eq $true -or ($null -ne $AppID -and $null -ne $AppSecret)) { 'client_credentials' } else { 'refresh_token' }
             if ($UseCertificate -eq $true) { $GrantType = "${GrantType}_certificate" }
+            # The cloud is part of every non-commercial key so tokens never cross clouds.
+            if ($CloudRoute) { $GrantType = "$GrantType@$($CloudRoute.CloudEnvironment)" }
             $SharedTokenCacheKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, [string]$scope, [bool]$asApp, $CacheClientId, $GrantType)
+            if ($CloudRoute) {
+                # The fast path may have missed this key (no marker yet); check it before asking Entra.
+                $SharedCacheEntry = [CIPP.CIPPTokenCache]::Lookup($SharedTokenCacheKey, 120)
+                if ($SharedCacheEntry.Found -and -not [string]::IsNullOrWhiteSpace($SharedCacheEntry.TokenPayloadJson)) {
+                    $AccessToken = $SharedCacheEntry.TokenPayloadJson | ConvertFrom-Json -ErrorAction SilentlyContinue
+                    if ($AccessToken.access_token) {
+                        if ($ReturnRefresh) { return $AccessToken }
+                        return @{ Authorization = "Bearer $($AccessToken.access_token)" }
+                    }
+                }
+                $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$SharedTokenCacheKey|failed", 0)
+                if ($CachedFailure.Found) { throw "Could not get token: $($CachedFailure.TokenPayloadJson)" }
+            }
         }
 
         try {
             if ($UseCertificate -eq $true) {
-                $SAMCert = Get-CIPPSAMCertificate -ErrorAction Stop
-                if (-not $SAMCert) { throw 'No SAM certificate available. Run Update-CIPPSAMCertificate to create one.' }
+                if ($CloudRoute.UsesGovApp) {
+                    $SAMCert = Get-CIPPSAMCertificate -Name 'GovSAMCertificate' -ErrorAction Stop
+                    if ($SAMCert -and $SAMCert.PfxBase64 -ne $GovCredential.PfxBase64) { $SAMCert = Get-CIPPSAMCertificate -Name 'GovSAMCertificate' -SkipCache -ErrorAction Stop }
+                    if (-not $SAMCert) { throw 'Azure Government app not configured: no certificate is stored for it.' }
+                } else {
+                    $SAMCert = Get-CIPPSAMCertificate -ErrorAction Stop
+                    if (-not $SAMCert) { throw 'No SAM certificate available. Run Update-CIPPSAMCertificate to create one.' }
+                }
             }
             for ($CertAttempt = 1; $CertAttempt -le 2; $CertAttempt++) {
                 try {
                     if ($UseCertificate -eq $true -and $AuthBody.grant_type -eq 'client_credentials') {
                         # App-only with certificate: use the dedicated cert token function
                         # (has its own cache under the same key and the AADSTS700027 retry)
-                        $AccessToken = Get-GraphTokenFromCert -TenantId $tenantid -AppId $AuthBody.client_id -Scope $scope -Certificate $SAMCert.Certificate -SkipCache:($SkipCache -eq $true) -ErrorAction Stop
+                        $CertSplat = @{ TenantId = $tenantid; AppId = $AuthBody.client_id; Scope = $scope; Certificate = $SAMCert.Certificate; SkipCache = ($SkipCache -eq $true) }
+                        if ($CloudRoute) { $CertSplat.CloudEnvironment = $CloudRoute.CloudEnvironment }
+                        $AccessToken = Get-GraphTokenFromCert @CertSplat -ErrorAction Stop
                         if (-not $AccessToken.access_token) { throw "Could not get a token using the SAM certificate for $tenantid" }
                     } else {
                         if ($UseCertificate -eq $true) {
@@ -209,19 +297,26 @@ function Get-GraphToken {
                             # instead of the client secret; the refresh token still provides user context
                             $null = $AuthBody.Remove('client_secret')
                             $AuthBody.client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-                            $AuthBody.client_assertion = New-CIPPCertificateAssertion -TenantId $tenantid -AppId $AuthBody.client_id -Certificate $SAMCert.Certificate
+                            $AuthBody.client_assertion = if ($CloudRoute) {
+                                New-CIPPCertificateAssertion -TenantId $tenantid -AppId $AuthBody.client_id -Certificate $SAMCert.Certificate -Audience "$LoginBase/$($tenantid)/oauth2/v2.0/token"
+                            } else {
+                                New-CIPPCertificateAssertion -TenantId $tenantid -AppId $AuthBody.client_id -Certificate $SAMCert.Certificate
+                            }
                         }
-                        $AccessToken = (Invoke-CIPPRestMethod -Method post -Uri "https://login.microsoftonline.com/$($tenantid)/oauth2/v2.0/token" -Body $Authbody -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop)
+                        $AccessToken = (Invoke-CIPPRestMethod -Method post -Uri "$LoginBase/$($tenantid)/oauth2/v2.0/token" -Body $Authbody -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop)
                     }
                     if ($CertAttempt -gt 1 -and $SAMCert.PfxBase64) {
-                        Update-CIPPSAMCertificateEnvCache -Name 'SAMCertificate' -PfxBase64 $SAMCert.PfxBase64
+                        $CertificateName = if ($CloudRoute.UsesGovApp) { 'GovSAMCertificate' } else { 'SAMCertificate' }
+                        Update-CIPPSAMCertificateEnvCache -Name $CertificateName -PfxBase64 $SAMCert.PfxBase64
                     }
                     break
                 } catch {
                     # A cached certificate may no longer be registered on the app: retry once with the stored one.
                     $TokenError = $_
                     if ($UseCertificate -ne $true -or $CertAttempt -gt 1 -or "$($TokenError.ErrorDetails.Message) $($TokenError.Exception.Message)" -notmatch 'AADSTS700027') { throw $TokenError }
-                    $StoredCert = try { Get-CIPPSAMCertificate -SkipCache -ErrorAction Stop } catch { $null }
+                    $StoredCert = try {
+                        if ($CloudRoute.UsesGovApp) { Get-CIPPSAMCertificate -Name 'GovSAMCertificate' -SkipCache -ErrorAction Stop } else { Get-CIPPSAMCertificate -SkipCache -ErrorAction Stop }
+                    } catch { $null }
                     if (-not $StoredCert -or $StoredCert.Thumbprint -eq $SAMCert.Thumbprint) { throw $TokenError }
                     $SAMCert = $StoredCert
                 }
@@ -280,8 +375,8 @@ function Get-GraphToken {
         }
     } finally {
         # Always release the per-key lock if we acquired it
-        if ($LockAcquired -and $SharedTokenCacheKey) {
-            [CIPP.CIPPTokenCache]::ReleaseLock($SharedTokenCacheKey)
+        if ($LockAcquired -and $LockKey) {
+            [CIPP.CIPPTokenCache]::ReleaseLock($LockKey)
         }
     }
 }

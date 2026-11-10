@@ -39,6 +39,10 @@ function Remove-CIPPDirectTenantToken {
         }
 
         Remove-Item -Path "env:\$TenantId" -ErrorAction SilentlyContinue
+        # Access tokens minted from the removed refresh token (in either cloud - redanthrax/CIPP#2) and the
+        # tenant's cloud marker go with it. Storage is the same for every cloud: there is no
+        # authority-side revocation, the refresh token simply stops being used.
+        $null = Clear-CippTokenCache -TenantFilter $TenantId
         Write-Information "Removed stored direct tenant refresh token for $TenantId"
     } catch {
         Write-Warning "Failed to remove the stored direct tenant refresh token for $TenantId - $($_.Exception.Message)"
