@@ -339,6 +339,64 @@ describe('CIPPM365OAuthButton government cloud', () => {
     expect(authButton()).toBeDisabled()
   })
 
+  it.each(['USGovHigh', 'USGovDoD'])(
+    'never starts a device code sign-in for %s, even with autoStartDeviceLogon',
+    async (cloud) => {
+      api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      renderWithTheme(
+        <CIPPM365OAuthButton cloudEnvironment={cloud} useDeviceCode autoStartDeviceLogon />
+      )
+      await act(async () => {})
+
+      expect(screen.getByText(/Device code sign-in is not available/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Login with Microsoft/ })).toBeDisabled()
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(openSpy).not.toHaveBeenCalled()
+    }
+  )
+
+  it('keeps the commercial device code sign-in available', async () => {
+    api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
+    renderWithTheme(<CIPPM365OAuthButton useDeviceCode />)
+    await act(async () => {})
+    expect(screen.queryByText(/Device code sign-in is not available/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Login with Microsoft/ })).toBeEnabled()
+  })
+
+  it('exchanges a commercial code exactly as before and stores the refresh token for the token tenant', async () => {
+    api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
+    const payload = btoa(JSON.stringify({ tid: 'tid-1', aud: 'https://graph.microsoft.com' }))
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: `h.${payload}.s`, refresh_token: 'r', expires_in: 3600 }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const onAuthSuccess = vi.fn()
+    renderWithTheme(<CIPPM365OAuthButton onAuthSuccess={onAuthSuccess} />)
+
+    fireEvent.click(authButton())
+    await act(async () => {})
+    const state = new URL(popup.location).searchParams.get('state')
+    await act(async () => {
+      lastChannel().onmessage({ data: { type: 'auth_code', code: 'abc', state } })
+    })
+
+    const exchange = fetchMock.mock.calls.find(([url]) => url === '/api/ExecTokenExchange')
+    const body = JSON.parse(exchange[1].body)
+    expect(body.tokenUrl).toBe('https://login.microsoftonline.com/organizations/oauth2/v2.0/token')
+    expect(body.tokenRequest.client_id).toBe(APP_ID)
+    expect(body.tenantId).toBe(APP_ID)
+    // the backend treats an explicit Commercial exactly like an absent value
+    expect(body.cloudEnvironment).toBe('Commercial')
+    const store = fetchMock.mock.calls.find(([url]) => url === '/api/ExecUpdateRefreshToken')
+    expect(JSON.parse(store[1].body)).toEqual(expect.objectContaining({ tenantId: 'tid-1', refreshtoken: 'r' }))
+    expect(onAuthSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({ cloudEnvironment: 'Commercial', accessToken: `h.${payload}.s` })
+    )
+  })
+
   it('keeps the commercial sign-in on login.microsoftonline.com with CIPP-SAM', async () => {
     api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
     renderWithTheme(<CIPPM365OAuthButton />)
