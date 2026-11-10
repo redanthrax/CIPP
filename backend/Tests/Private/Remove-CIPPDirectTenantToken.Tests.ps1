@@ -13,6 +13,7 @@ BeforeAll {
     function Add-CIPPAzDataTableEntity { param($Context, $Entity, [switch]$Force) }
     function Get-CippKeyVaultName { }
     function Remove-CippKeyVaultSecret { param($VaultName, $Name) }
+    function Clear-CippTokenCache { param($TenantFilter) }
 
     . $FunctionPath
 }
@@ -29,6 +30,7 @@ Describe 'Remove-CIPPDirectTenantToken' {
         Mock -CommandName Remove-CippKeyVaultSecret -MockWith { }
         Mock -CommandName Get-CIPPTable -MockWith { @{ Context = 'stub-table' } }
         Mock -CommandName Add-CIPPAzDataTableEntity -MockWith { }
+        Mock -CommandName Clear-CippTokenCache -MockWith { 0 }
     }
 
     AfterEach {
@@ -99,5 +101,12 @@ Describe 'Remove-CIPPDirectTenantToken' {
             Remove-CIPPDirectTenantToken -TenantId $script:TenantId
             Should -Invoke -CommandName Add-CIPPAzDataTableEntity -Times 0 -Exactly
         }
+    }
+
+    It 'drops the tenant''s cached tokens (redanthrax/CIPP#2)' {
+        $env:AzureWebJobsStorage = 'DefaultEndpointsProtocol=https'
+        $env:NonLocalHostAzurite = $null
+        Remove-CIPPDirectTenantToken -TenantId $script:TenantId
+        Should -Invoke Clear-CippTokenCache -Times 1 -Exactly -ParameterFilter { $TenantFilter -eq $script:TenantId }
     }
 }

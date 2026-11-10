@@ -66,6 +66,9 @@ function Invoke-EditTenantCloudEnvironment {
         $Previous = if ($Entity.cloudEnvironment) { $Entity.cloudEnvironment } else { 'Commercial' }
         $Entity | Add-Member -NotePropertyName 'cloudEnvironment' -NotePropertyValue $CloudEnvironment -Force
         Add-CIPPAzDataTableEntity @TenantsTable -Entity $Entity -Force | Out-Null
+        # Tokens are routed by cloud (redanthrax/CIPP#2): drop this tenant's cached tokens and cloud marker
+        # so the next request uses the new cloud's authority and app.
+        $null = Clear-CippTokenCache -TenantFilter $Tenant.customerId
 
         $Message = "Changed cloud environment for $($Tenant.displayName) from $Previous to $CloudEnvironment"
         Write-LogMessage -headers $Headers -API $APIName -tenant $Tenant.defaultDomainName -TenantId $Tenant.customerId -message $Message -Sev 'Info'
