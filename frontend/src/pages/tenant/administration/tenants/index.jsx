@@ -2,10 +2,15 @@ import { Layout as DashboardLayout } from "../../../../layouts/index";
 import { TabbedLayout } from "../../../../layouts/TabbedLayout";
 import { CippTablePage } from "../../../../components/CippComponents/CippTablePage.jsx";
 import { CippIcons } from "../../../../utils/icon-registry"
+import { usePermissions } from "../../../../hooks/use-permissions.js";
 import tabOptions from "./tabOptions";
 
 const Page = () => {
   const pageTitle = "Tenants";
+  const { checkPermissions } = usePermissions();
+  // The cloud picks the authority and credentials CIPP uses for the tenant, so the backend holds
+  // this to the same bar as adding a tenant (CIPP.AppSettings.ReadWrite + all tenants).
+  const canSetCloudEnvironment = checkPermissions(["CIPP.AppSettings.ReadWrite"]);
 
   const simpleColumns = [
     "displayName",
@@ -47,6 +52,7 @@ const Page = () => {
       icon: <CippIcons.Edit />,
       color: "info",
       hideBulk: true,
+      condition: () => canSetCloudEnvironment,
       fields: [
         {
           type: "autoComplete",

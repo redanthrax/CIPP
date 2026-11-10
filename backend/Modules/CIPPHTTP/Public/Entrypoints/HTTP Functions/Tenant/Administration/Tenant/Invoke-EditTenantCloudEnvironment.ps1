@@ -3,15 +3,27 @@ function Invoke-EditTenantCloudEnvironment {
     .FUNCTIONALITY
         Entrypoint,AnyTenant
     .ROLE
-        Tenant.Config.ReadWrite
+        CIPP.AppSettings.ReadWrite
     .DESCRIPTION
-        Manually sets the Microsoft cloud a tenant lives in (Commercial, USGovHigh or USGovDoD), overriding the value detected when the tenant was added. Use this for DoD tenants, which detection may report as USGovHigh.
+        Manually sets the Microsoft cloud a tenant lives in (Commercial, USGovHigh or USGovDoD), overriding the value detected when the tenant was added. Use this for DoD tenants, which detection may report as USGovHigh. Requires unrestricted tenant access, the same as adding a tenant.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
 
     $APIName = $Request.Params.CIPPEndpoint
     $Headers = $Request.Headers
+
+    # The cloud decides which identity authority, app credentials and API hosts CIPP uses for the
+    # tenant, so changing it is held to the same bar as onboarding the tenant (Invoke-ExecAddTenant):
+    # CIPP.AppSettings.ReadWrite and unrestricted tenant scope. Checked before anything else so a
+    # restricted caller cannot reach the tenant lookup (which can trigger a GDAP rebuild) either.
+    $AllowedTenants = Test-CIPPAccess -Request $Request -TenantList
+    if ($AllowedTenants -notcontains 'AllTenants') {
+        return ([HttpResponseContext]@{
+                StatusCode = [HttpStatusCode]::Forbidden
+                Body       = @{ Results = 'Changing a tenant cloud environment requires unrestricted tenant access' }
+            })
+    }
 
     $AllowedValues = @('Commercial', 'USGovHigh', 'USGovDoD')
 
@@ -35,8 +47,8 @@ function Invoke-EditTenantCloudEnvironment {
             })
     }
 
-    # AnyTenant: Get-Tenants is narrowed to the caller's allowed tenants; no match means
-    # unknown or out-of-scope, either way nothing may be written
+    # Get-Tenants is still narrowed to the caller's allowed tenants (defence in depth); no match
+    # means unknown or out-of-scope, either way nothing may be written
     $Tenant = Get-Tenants -TenantFilter $customerId | Select-Object -First 1
     if (-not $Tenant) {
         return ([HttpResponseContext]@{

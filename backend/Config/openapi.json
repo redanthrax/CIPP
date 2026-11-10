@@ -12233,7 +12233,7 @@
         "tags": [
           "Tenant > Administration > Tenant"
         ],
-        "description": "Manually sets the Microsoft cloud a tenant lives in (Commercial, USGovHigh or USGovDoD), overriding the value detected when the tenant was added. Use this for DoD tenants, which detection may report as USGovHigh.",
+        "description": "Manually sets the Microsoft cloud a tenant lives in (Commercial, USGovHigh or USGovDoD), overriding the value detected when the tenant was added. Use this for DoD tenants, which detection may report as USGovHigh. Requires unrestricted tenant access, the same as adding a tenant.",
         "requestBody": {
           "required": true,
           "content": {
@@ -12364,7 +12364,7 @@
             "bearerAuth": []
           }
         ],
-        "x-cipp-role": "Tenant.Config.ReadWrite",
+        "x-cipp-role": "CIPP.AppSettings.ReadWrite",
         "x-cipp-any-tenant": true
       }
     },
