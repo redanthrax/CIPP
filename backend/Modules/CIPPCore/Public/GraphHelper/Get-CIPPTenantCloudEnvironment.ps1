@@ -39,7 +39,8 @@ function Get-CIPPTenantCloudEnvironment {
     $FromDomain = if ($InitialDomainName -match $DomainPattern -and $InitialDomainName -match '\.onmicrosoft\.us$') { 'USGovHigh' } else { 'Commercial' }
 
     if ([string]::IsNullOrWhiteSpace($TenantId) -or ($TenantId -notmatch $GuidPattern -and $TenantId -notmatch $DomainPattern)) {
-        Write-LogMessage -API 'CloudEnvironment' -tenant $InitialDomainName -message "Cannot detect the cloud environment from tenant id '$TenantId' as it is not a GUID or domain. Using $FromDomain based on the initial domain." -Sev 'Warning'
+        # Logging writes to a table and can fail; that must not turn into a throw here.
+        try { Write-LogMessage -API 'CloudEnvironment' -tenant $InitialDomainName -message "Cannot detect the cloud environment from tenant id '$TenantId' as it is not a GUID or domain. Using $FromDomain based on the initial domain." -Sev 'Warning' } catch {}
         return $FromDomain
     }
 
@@ -55,7 +56,7 @@ function Get-CIPPTenantCloudEnvironment {
         # Discovery says commercial, but an onmicrosoft.us initial domain can only be a gov tenant.
         return $FromDomain
     } catch {
-        Write-LogMessage -API 'CloudEnvironment' -tenant $InitialDomainName -tenantid $TenantId -message "Could not read OpenID discovery for tenant $TenantId to detect its cloud environment, using $FromDomain based on the initial domain: $($_.Exception.Message)" -Sev 'Warning'
+        try { Write-LogMessage -API 'CloudEnvironment' -tenant $InitialDomainName -tenantid $TenantId -message "Could not read OpenID discovery for tenant $TenantId to detect its cloud environment, using $FromDomain based on the initial domain: $($_.Exception.Message)" -Sev 'Warning' } catch {}
         return $FromDomain
     }
 }
