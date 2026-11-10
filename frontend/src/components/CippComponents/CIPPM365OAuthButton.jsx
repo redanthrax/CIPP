@@ -152,6 +152,8 @@ export const CIPPM365OAuthButton = ({
 
   // Function to retrieve device code
   const retrieveDeviceCode = async () => {
+    // Never request a device code (commercial endpoints, CIPP-SAM) for a government cloud (redanthrax/CIPP#2).
+    if (isGovCloud) return
     setCodeRetrievalInProgress(true)
     setAuthError(null)
 
@@ -197,6 +199,16 @@ export const CIPPM365OAuthButton = ({
 
   // Device code authentication function - opens popup and starts polling
   const handleDeviceCodeAuthentication = async () => {
+    // Device code sign-in only knows the commercial endpoints and CIPP-SAM (redanthrax/CIPP#2). The
+    // button is disabled for government clouds too; this keeps the handler itself from running.
+    if (isGovCloud) {
+      setAuthError({
+        errorCode: 'device_code_unsupported',
+        errorMessage: 'Device code sign-in is not available for government cloud tenants.',
+        timestamp: new Date().toISOString(),
+      })
+      return
+    }
     // Only refetch appId if not already present
     if (!applicationId && !appIdInfo?.data?.applicationId) {
       await appIdInfo.refetch()
