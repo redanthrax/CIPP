@@ -112,9 +112,9 @@ function Invoke-ExecListAppId {
     }
 
     # The Azure Government app's client id (redanthrax/CIPP#2) for the direct-tenant consent flow.
-    # A client id is public; the secret and certificate never leave the backend. Absent when not set up.
-    $GovApplicationId = $null
-    try { $GovApplicationId = (Get-CIPPGovAppCredential).ApplicationId } catch { Write-Information "Could not read the Azure Government app id: $($_.Exception.Message)" }
+    # A client id is public. Only the id is read: the gov secret and certificate are not loaded here.
+    # Absent when not set up.
+    $GovApplicationId = Get-CIPPGovAppId
 
     $Results = @{
         govApplicationId               = $GovApplicationId
