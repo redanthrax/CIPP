@@ -315,6 +315,24 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Get-CIPPGovAppCredential -Times 0
             Should -Invoke Invoke-CIPPRestMethod -Times 1 -ParameterFilter { $Body.client_id -eq 'other-app' }
         }
+
+        It 'refuses to redeem a government direct tenant''s stored refresh token with an explicit AppID' {
+            { Get-GraphToken -tenantid $script:GovTenant -AppID 'other-app' } | Should -Throw '*government*'
+            Should -Invoke Invoke-CIPPRestMethod -Times 0
+        }
+
+        It 'refuses to redeem the partner refresh token with an explicit AppID on a government instance' {
+            $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+            { Get-GraphToken -tenantid $script:GdapTenant -AppID 'other-app' } | Should -Throw '*government*'
+            Should -Invoke Invoke-CIPPRestMethod -Times 0
+        }
+
+        It 'still redeems a commercial refresh token with an explicit AppID at the commercial authority' {
+            $null = Get-GraphToken -tenantid $script:ComTenant -AppID 'other-app'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -ParameterFilter {
+                $Uri -like 'https://login.microsoftonline.com/*' -and $Body.client_id -eq 'other-app' -and $Body.refresh_token -eq 'com-tenant-refresh-token'
+            }
+        }
     }
 }
 
