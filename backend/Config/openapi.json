@@ -12226,6 +12226,148 @@
         "x-cipp-any-tenant": true
       }
     },
+    "/api/EditTenantCloudEnvironment": {
+      "post": {
+        "summary": "EditTenantCloudEnvironment",
+        "operationId": "EditTenantCloudEnvironment",
+        "tags": [
+          "Tenant > Administration > Tenant"
+        ],
+        "description": "Manually sets the Microsoft cloud a tenant lives in (Commercial, USGovHigh or USGovDoD), overriding the value detected when the tenant was added. Use this for DoD tenants, which detection may report as USGovHigh.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cloudEnvironment": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "The cloud to set: Commercial, USGovHigh or USGovDoD - a plain string or the { label, value } object an autocomplete field sends."
+                  },
+                  "customerId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "customerId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
+                  "properties": {
+                    "cloudEnvironment": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "customerId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "defaultDomainName": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "delegatedPrivilegeStatus": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "directTenantAuthDate": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "directTenantUserPrincipalName": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "displayName": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "domains": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ETag": {
+                      "type": "string",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Excluded": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ExcludeDate": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ExcludeUser": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "hasAutoExtend": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "initialDomainName": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastGraphError": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastGraphTokenError": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastRefresh": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "relationshipCount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "relationshipEnd": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "RequiresRefresh": {
+                      "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "RowKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Timestamp": {
+                      "type": "string",
+                      "x-cipp-field-source": "storage"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "Tenant.Config.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
     "/api/EditTenantOffboardingDefaults": {
       "post": {
         "summary": "EditTenantOffboardingDefaults",
@@ -13724,6 +13866,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "cloudEnvironment": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "customerId": {
                       "x-cipp-field-source": "storage"
                     },
@@ -24273,6 +24418,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record, and the columns the CIPP UI renders. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "cloudEnvironment": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "customerId": {
                       "x-cipp-field-source": "storage"
                     },
@@ -36369,6 +36517,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "cloudEnvironment": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "customerId": {
                       "x-cipp-field-source": "storage"
                     },
