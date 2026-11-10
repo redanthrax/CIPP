@@ -38,12 +38,13 @@ function Invoke-EditTenantCloudEnvironment {
             })
     }
 
-    # Normalise to the canonical casing so the stored value can be compared exactly later on.
-    $CloudEnvironment = $AllowedValues | Where-Object { $_ -eq "$RequestedValue" } | Select-Object -First 1
+    # Exact, case-sensitive match only: the stored value is compared exactly when choosing endpoints,
+    # so anything but a canonical value is rejected rather than guessed at. The input is not echoed back.
+    $CloudEnvironment = $AllowedValues | Where-Object { $RequestedValue -is [string] -and $_ -ceq $RequestedValue } | Select-Object -First 1
     if (-not $CloudEnvironment) {
         return ([HttpResponseContext]@{
                 StatusCode = [HttpStatusCode]::BadRequest
-                Body       = @{ Results = "Invalid cloudEnvironment '$RequestedValue'. Allowed values: $($AllowedValues -join ', ')" }
+                Body       = @{ Results = "Invalid cloudEnvironment. Allowed values: $($AllowedValues -join ', ')" }
             })
     }
 
