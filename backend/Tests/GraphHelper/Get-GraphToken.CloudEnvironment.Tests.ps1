@@ -187,6 +187,57 @@ Describe 'Get-GraphToken cloud routing' {
             $GovKey = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'https://graph.microsoft.us/.default', $false, $script:GovAppId, 'refresh_token@USGovHigh')
             [CIPP.CIPPTokenCache]::Lookup("$GovKey|failed", 0).Found | Should -BeTrue
         }
+
+        It 'returns the government refresh token to Start-UpdateTokensTimer, fresh and from the cache' {
+            # The timer calls Get-GraphToken -ReturnRefresh $true -TenantId <direct tenant> and stores
+            # refresh_token back in Key Vault under the tenant id.
+            $First = Get-GraphToken -ReturnRefresh $true -TenantId $script:GovTenant
+            $First.refresh_token | Should -Be 'new-refresh'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -like 'https://login.microsoftonline.us/*' -and $Body.refresh_token -eq 'gov-tenant-refresh-token' -and $Body.client_id -eq $script:GovAppId
+            }
+            $Second = Get-GraphToken -ReturnRefresh $true -TenantId $script:GovTenant
+            $Second.refresh_token | Should -Be 'new-refresh'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+        }
+
+        It 'never serves one cloud''s cached token for another, even with the old token still cached' {
+            $null = Get-GraphToken -tenantid $script:GovTenant   # USGovHigh token cached + marker
+            $script:GovCloud = 'USGovDoD'
+            # Only the marker goes (e.g. it expired); the GCC High token is still in the cache.
+            [CIPP.CIPPTokenCache]::Remove([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'))
+
+            $null = Get-GraphToken -tenantid $script:GovTenant
+
+            Should -Invoke Invoke-CIPPRestMethod -Times 2 -Exactly
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Body.scope -eq 'https://dod-graph.microsoft.us/.default' }
+            [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'https://graph.microsoft.us/.default', $false, $script:GovAppId, 'refresh_token@USGovHigh') |
+                Should -Not -Be ([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'https://dod-graph.microsoft.us/.default', $false, $script:GovAppId, 'refresh_token@USGovDoD'))
+        }
+
+        It 'picks up a changed cloud at once when the tenant''s cache is cleared (cloud override, token removal)' {
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            $script:GovCloud = 'Commercial'
+            $null = [CIPP.CIPPTokenCache]::RemoveByTenant($script:GovTenant)   # what Clear-CippTokenCache -TenantFilter does
+
+            $null = Get-GraphToken -tenantid $script:GovTenant
+
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq "https://login.microsoftonline.com/$($script:GovTenant)/oauth2/v2.0/token" -and $Body.client_id -eq 'sam-app-id' -and $Body.scope -eq 'https://graph.microsoft.com/.default'
+            }
+            [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0).Found | Should -BeFalse
+        }
+
+        It 'keeps serving the old cloud''s token until the marker expires when the cache is NOT cleared (another worker)' {
+            # Documents the cross-worker window: Invoke-EditTenantCloudEnvironment clears only its own
+            # process's cache, so another worker follows the 15-minute marker until it expires.
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            $script:GovCloud = 'USGovDoD'
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+            $Marker = [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0)
+            $Marker.TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        }
     }
 
     Context 'Azure Government app with a certificate' {
