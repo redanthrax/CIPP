@@ -24,6 +24,7 @@ BeforeAll {
     function Get-CIPPSAMCertificate { param($Name, [switch]$SkipCache) }
     function New-CIPPSAMCertificate { param($SubjectName) }
     function Set-CIPPSAMCertificate { param($PfxBase64, $Name) }
+    function Test-CIPPAccess { param($Request, [switch]$TenantList) $script:TenantAccess }
 
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Get-CIPPGovAppCredential.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Set-CIPPGovAppCredential.ps1')
@@ -56,6 +57,7 @@ Describe 'Azure Government app credentials' {
         Mock Set-CippKeyVaultSecret { $script:Vault[$Name] = [System.Net.NetworkCredential]::new('', $SecretValue).Password }
         Mock Set-CIPPCredentialVersion {}
         Mock Write-LogMessage {}
+        $script:TenantAccess = @('AllTenants')
     }
     AfterEach {
         foreach ($Name in $script:EnvNames) { if ($null -eq $script:Saved[$Name]) { Remove-Item "env:$Name" -ErrorAction SilentlyContinue } else { Set-Item "env:$Name" $script:Saved[$Name] } }
@@ -190,6 +192,21 @@ Describe 'Azure Government app credentials' {
             Should -Invoke Set-CIPPSAMCertificate -Times 0 -ParameterFilter { $Name -ne 'GovSAMCertificate' }
             ($Response.Body | ConvertTo-Json -Depth 10) | Should -Not -BeLike '*private-pfx*'
             $Response.Body.Results.publicCertificate | Should -Not -BeNullOrEmpty
+        }
+
+        It 'refuses <Action> for a tenant-restricted caller without writing anything' -TestCases @(
+            @{ Action = 'Save' }
+            @{ Action = 'GenerateCertificate' }
+        ) {
+            param($Action)
+            $script:TenantAccess = @('22222222-2222-2222-2222-222222222222')
+            Mock New-CIPPSAMCertificate {}
+            Mock Set-CIPPSAMCertificate {}
+            $Response = Invoke-ExecGovAppCredentials -Request (New-Request -Body @{ Action = $Action; applicationId = $script:GovId; applicationSecret = 'abc' })
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
+            Should -Invoke Set-CippKeyVaultSecret -Times 0
+            Should -Invoke New-CIPPSAMCertificate -Times 0
+            Should -Invoke Set-CIPPSAMCertificate -Times 0
         }
 
         It 'rejects an unknown action' {
