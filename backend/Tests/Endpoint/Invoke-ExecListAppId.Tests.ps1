@@ -26,6 +26,7 @@ BeforeAll {
 
     . $FunctionPath
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Get-CIPPGovAppCredential.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Get-CIPPGovAppId.ps1')
 
     $script:EnvNames = 'ApplicationID', 'TenantID', 'GovApplicationID', 'GovApplicationSecret', 'GovSAMCertificate', 'CIPPGovAppLoaded', 'AzureWebJobsStorage', 'NonLocalHostAzurite'
     $script:SamId = 'f8b2c3d4-9e01-4a23-8b45-6c7d8e9f0a1b'
@@ -89,5 +90,37 @@ Describe 'Invoke-ExecListAppId govApplicationId' {
         $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
         $Response.Body.applicationId | Should -Be $script:SamId
         $Response.Body.govApplicationId | Should -BeNullOrEmpty
+    }
+
+    It 'reads only the gov app id from Key Vault, never the gov secret or certificate' {
+        $script:Vault['GovApplicationID'] = $script:GovId
+        $script:Vault['GovApplicationSecret'] = 'gov-secret-value'
+        $script:Vault['GovSAMCertificate'] = 'Z292LXBmeC1wcml2YXRl'
+
+        $null = Invoke-ExecListAppId -Request $script:Request
+
+        Should -Invoke Get-CippKeyVaultSecret -Times 1 -Exactly -ParameterFilter { $Name -eq 'GovApplicationID' }
+        Should -Invoke Get-CippKeyVaultSecret -Times 0 -ParameterFilter { $Name -in 'GovApplicationSecret', 'GovSAMCertificate' }
+        $env:GovApplicationSecret | Should -BeNullOrEmpty
+        $env:GovSAMCertificate | Should -BeNullOrEmpty
+    }
+
+    It 'uses the gov app id already loaded in the process without reading Key Vault' {
+        $env:CIPPGovAppLoaded = 'true'
+        $env:GovApplicationID = $script:GovId
+        Mock Get-CIPPAuthentication { }
+
+        (Invoke-ExecListAppId -Request $script:Request).Body.govApplicationId | Should -Be $script:GovId
+        Should -Invoke Get-CippKeyVaultSecret -Times 0 -ParameterFilter { $Name -like 'Gov*' }
+    }
+
+    It 'reads the gov app id from dev storage' {
+        $env:AzureWebJobsStorage = 'UseDevelopmentStorage=true'
+        Mock Get-CIPPAzDataTableEntity { [pscustomobject]@{ ApplicationID = $script:SamId; TenantID = $script:Partner; GovApplicationID = $script:GovId; GovApplicationSecret = 'gov-secret-value' } }
+
+        $Response = Invoke-ExecListAppId -Request $script:Request
+
+        $Response.Body.govApplicationId | Should -Be $script:GovId
+        $env:GovApplicationSecret | Should -BeNullOrEmpty
     }
 }
