@@ -18,6 +18,20 @@ function Get-Tenants {
     )
 
     $TenantsTable = Get-CippTable -tablename 'Tenants'
+
+    # GDAP does not cross clouds, so the partner tenant and every GDAP tenant are in the cloud of this
+    # instance (CIPP_PARTNER_CLOUD, default Commercial - redanthrax/CIPP#2). Rows without a stored value
+    # get that cloud. An invalid setting leaves the value empty, which token requests refuse, rather
+    # than labelling every tenant Commercial.
+    $PartnerCloud = 'Commercial'
+    if (-not [string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD)) {
+        try {
+            $PartnerCloud = Get-CIPPPartnerCloudEnvironment
+        } catch {
+            $PartnerCloud = ''
+            try { Write-LogMessage -API 'Get-Tenants' -message $_.Exception.Message -Sev 'Critical' } catch {}
+        }
+    }
     $ExcludedFilter = "PartitionKey eq 'Tenants' and Excluded eq true"
 
     if ($SkipList) {
@@ -226,7 +240,7 @@ function Get-Tenants {
                         existingInitial    = $ExistingTenantInfo.initialDomainName
                         existingDefault    = $ExistingTenantInfo.defaultDomainName
                         # The row is rewritten whole by New-CIPPTenantRow, so carry over a detected or manually set cloud.
-                        cloudEnvironment   = if ($ExistingTenantInfo.cloudEnvironment) { $ExistingTenantInfo.cloudEnvironment } else { 'Commercial' }
+                        cloudEnvironment   = if ($ExistingTenantInfo.cloudEnvironment) { $ExistingTenantInfo.cloudEnvironment } else { $PartnerCloud }
                     })
             }
         }
@@ -315,7 +329,7 @@ function Get-Tenants {
                     customerId         = $Partner.RowKey
                     defaultDomainName  = $PartnerDefaultDomain
                     initialDomainName  = ($PartnerOrg.verifiedDomains | Where-Object { $_.isInitial -eq $true }).name
-                    cloudEnvironment   = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { 'Commercial' }
+                    cloudEnvironment   = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { $PartnerCloud }
                     displayName        = $PartnerDisplayName
                     domains            = 'PartnerTenant'
                     partnerTenantId    = "$($Partner.RowKey)"
@@ -359,7 +373,7 @@ function Get-Tenants {
                 customerId        = $env:TenantID
                 defaultDomainName = ($Domains | Where-Object { $_.isInitial -eq $true }).id
                 initialDomainName = ($Domains | Where-Object { $_.isInitial -eq $true }).id
-                cloudEnvironment  = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { 'Commercial' }
+                cloudEnvironment  = if ($ExistingPartner.cloudEnvironment) { @($ExistingPartner)[0].cloudEnvironment } else { $PartnerCloud }
                 displayName       = ($Domains | Where-Object { $_.isInitial -eq $true }).id
                 domains           = 'PartnerTenant'
                 Excluded          = $false
@@ -391,12 +405,13 @@ function Get-Tenants {
     $Tenants = foreach ($Tenant in $IncludedTenantsCache) {
         if ($Scoped -and $script:CippAllowedTenantsStorage.Value -notcontains $Tenant.customerId) { continue }
         if ($null -ne $Tenant.defaultDomainName -and ($Tenant.defaultDomainName -notmatch 'Domain Error' -or $IncludeAll.IsPresent)) {
-            # Rows written before cloudEnvironment existed have no value - those are Commercial tenants.
-            if ([string]::IsNullOrEmpty($Tenant.cloudEnvironment)) {
+            # Rows written before cloudEnvironment existed have no value. They were onboarded with the
+            # SAM app, which lives in the partner cloud, so they are in that cloud (Commercial by default).
+            if ([string]::IsNullOrEmpty($Tenant.cloudEnvironment) -and $PartnerCloud) {
                 if ($Tenant -is [System.Collections.IDictionary]) {
-                    $Tenant['cloudEnvironment'] = 'Commercial'
+                    $Tenant['cloudEnvironment'] = $PartnerCloud
                 } else {
-                    $Tenant | Add-Member -NotePropertyName 'cloudEnvironment' -NotePropertyValue 'Commercial' -Force
+                    $Tenant | Add-Member -NotePropertyName 'cloudEnvironment' -NotePropertyValue $PartnerCloud -Force
                 }
             }
             $Tenant

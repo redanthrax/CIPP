@@ -10,6 +10,13 @@ BeforeAll {
     function ConvertTo-CIPPODataFilterValue { param($Value, $Type) }
 
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-Tenants.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
+    $script:OrigPartnerCloud = $env:CIPP_PARTNER_CLOUD
+    Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue
+}
+
+AfterAll {
+    if ($null -eq $script:OrigPartnerCloud) { Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue } else { $env:CIPP_PARTNER_CLOUD = $script:OrigPartnerCloud }
 }
 
 Describe 'Get-Tenants cloudEnvironment' {
@@ -255,5 +262,119 @@ Describe 'Get-Tenants cloudEnvironment on the partner tenant row' {
 
         $Partner = @($script:Written | Where-Object { $_.RowKey -eq $env:TenantID })
         $Partner[0].cloudEnvironment | Should -Be 'Commercial'
+    }
+}
+
+# CIPP_PARTNER_CLOUD (redanthrax/CIPP#2): GDAP never crosses clouds, so rows with no stored value take
+# the instance's partner cloud instead of a hardcoded Commercial. Stored values are left alone.
+Describe 'Get-Tenants with a partner cloud setting' {
+    BeforeAll {
+        function Get-AzDataTableEntity { param($Context, $Filter) }
+        function Add-CIPPAzDataTableEntity { param($Context, $Entity, [switch]$Force) }
+        function Add-AzDataTableEntity { param($Context, $Entity, [switch]$Force) }
+        function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck) }
+        function Get-CippException { param($Exception) }
+
+        $script:OrigRefreshToken = $env:RefreshToken
+        $script:OrigTenantID = $env:TenantID
+        $env:RefreshToken = 'pester'
+        $env:TenantID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+        $script:Guid = '66666666-6666-6666-6666-666666666666'
+    }
+
+    AfterAll {
+        $env:RefreshToken = $script:OrigRefreshToken
+        $env:TenantID = $script:OrigTenantID
+        Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $script:Rows = @()
+        $script:Written = [System.Collections.Generic.List[object]]::new()
+        $script:StoredGdapCloud = $null
+
+        Mock Get-CippTable { @{} }
+        Mock ConvertTo-CIPPODataFilterValue { $Value }
+        Mock Write-LogMessage {}
+        Mock Get-CippException { @{} }
+        Mock Get-AzDataTableEntity {}
+        Mock Add-AzDataTableEntity { $script:Written.Add($Entity) }
+        Mock Add-CIPPAzDataTableEntity { foreach ($E in @($Entity)) { $script:Written.Add($E) } }
+        Mock Get-CIPPAzDataTableEntity {
+            if ([string]::IsNullOrEmpty($Filter)) { return [PSCustomObject]@{ state = 'PartnerTenantAvailable' } }
+            if ($Filter -like '*Excluded eq true*') { return $null }
+            if ($Filter -like "*RowKey eq '$($script:Guid)'*" -and $script:StoredGdapCloud) {
+                return [PSCustomObject]@{ RowKey = $script:Guid; customerId = $script:Guid; displayName = 'GDAP'; RequiresRefresh = $true; cloudEnvironment = $script:StoredGdapCloud }
+            }
+            if ($Filter -like '*RowKey eq*') { return $null }
+            return $script:Rows
+        }
+        Mock New-GraphGetRequest {
+            if ($uri -like '*delegatedAdminRelationships*') {
+                return [PSCustomObject]@{ displayName = 'GDAP'; customer = [PSCustomObject]@{ tenantId = $script:Guid; displayName = 'GDAP' }; autoExtendDuration = 'P180D'; endDateTime = (Get-Date).AddYears(1).ToString('o') }
+            }
+            if ($uri -like '*beta/domains*') {
+                return @(
+                    [PSCustomObject]@{ id = 'x.us'; isDefault = $true; isInitial = $false }
+                    [PSCustomObject]@{ id = 'x.onmicrosoft.us'; isDefault = $false; isInitial = $true }
+                )
+            }
+            throw "unexpected Graph call: $uri"
+        }
+    }
+
+    It 'writes <Cloud> on new GDAP and partner rows' -ForEach @(
+        @{ Cloud = 'USGovHigh' }
+        @{ Cloud = 'USGovDoD' }
+        @{ Cloud = 'Commercial' }
+    ) {
+        $env:CIPP_PARTNER_CLOUD = $Cloud
+        $Result = Get-Tenants -TriggerRefresh
+        @($script:Written).Count | Should -Be 2
+        foreach ($Row in $script:Written) { $Row.cloudEnvironment | Should -BeExactly $Cloud }
+        foreach ($Row in @($Result)) { $Row.cloudEnvironment | Should -BeExactly $Cloud }
+    }
+
+    It 'keeps a value already stored on a GDAP row' {
+        $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+        $script:StoredGdapCloud = 'USGovDoD'
+        $null = Get-Tenants -TriggerRefresh
+        ($script:Written | Where-Object RowKey -EQ $script:Guid).cloudEnvironment | Should -BeExactly 'USGovDoD'
+    }
+
+    It 'hands out the partner cloud for a cached row without a value' {
+        $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+        $script:Rows = @([PSCustomObject]@{ RowKey = $script:Guid; customerId = $script:Guid; displayName = 'Legacy'; defaultDomainName = 'legacy.us' })
+        (Get-Tenants).cloudEnvironment | Should -BeExactly 'USGovHigh'
+    }
+
+    It 'leaves the value empty and logs, instead of using Commercial, for an invalid setting: <Value>' -ForEach @(
+        @{ Value = 'usgovhigh' }
+        @{ Value = 'GCCHigh' }
+    ) {
+        $env:CIPP_PARTNER_CLOUD = $Value
+        $Result = Get-Tenants -TriggerRefresh
+        foreach ($Row in $script:Written) { $Row.cloudEnvironment | Should -BeNullOrEmpty }
+        foreach ($Row in @($Result)) { $Row.cloudEnvironment | Should -BeNullOrEmpty }
+        Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Critical' -and $message -like '*CIPP_PARTNER_CLOUD*' }
+    }
+}
+
+Describe 'Get-CIPPPartnerCloudEnvironment' {
+    AfterEach { Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue }
+
+    It 'defaults to Commercial when unset' {
+        Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue
+        Get-CIPPPartnerCloudEnvironment | Should -BeExactly 'Commercial'
+    }
+
+    It 'returns <Value> exactly' -ForEach @(@{ Value = 'Commercial' }, @{ Value = 'USGovHigh' }, @{ Value = 'USGovDoD' }) {
+        $env:CIPP_PARTNER_CLOUD = $Value
+        Get-CIPPPartnerCloudEnvironment | Should -BeExactly $Value
+    }
+
+    It 'throws for <Value>' -ForEach @(@{ Value = 'usgovhigh' }, @{ Value = 'COMMERCIAL' }, @{ Value = 'USGovHigh ' }, @{ Value = 'GCC' }) {
+        $env:CIPP_PARTNER_CLOUD = $Value
+        { Get-CIPPPartnerCloudEnvironment } | Should -Throw '*CIPP_PARTNER_CLOUD*'
     }
 }
