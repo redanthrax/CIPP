@@ -95,6 +95,27 @@ function Invoke-ExecAddTenant {
                 throw "Failed to get information for tenant $tenantId. Make sure the tenant is properly authenticated."
             }
 
+            # The tenant details come from the consent token, but the row is keyed on the tenantId in
+            # the request body. Refuse to add the tenant unless the token belongs to that same tenant,
+            # otherwise one tenant's name and domains could be stored under another tenant's id.
+            $TokenTenantId = @($OrgResponse.id) | Select-Object -First 1
+            if ([string]::IsNullOrWhiteSpace("$TokenTenantId") -or "$TokenTenantId" -ne "$tenantId") {
+                Remove-CIPPDirectTenantToken -TenantId $tenantId
+                Write-LogMessage -tenantid $tenantId -API 'NewTenant' -message "Blocked adding tenant $tenantId with ${ServiceAccount}: the access token belongs to tenant '$TokenTenantId'." -Sev 'Warning'
+                return ([HttpResponseContext]@{
+                        StatusCode = [HttpStatusCode]::BadRequest
+                        Body       = @{ 'message' = 'The signed-in account does not belong to the tenant being added. Sign in with an account from that tenant and try again.'; 'severity' = 'error' }
+                    })
+            }
+
+            # Record which Microsoft cloud the tenant lives in. Detection must never block adding the tenant.
+            try {
+                $CloudEnvironment = Get-CIPPTenantCloudEnvironment -TenantId $tenantId -InitialDomainName $initialDomainName
+            } catch {
+                Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Failed to detect the cloud environment for $displayName, defaulting to Commercial: $($_.Exception.Message)" -Sev 'Warning'
+                $CloudEnvironment = 'Commercial'
+            }
+
             # Create new tenant object
             $NewTenant = [PSCustomObject]@{
                 PartitionKey                  = 'Tenants'
@@ -103,6 +124,7 @@ function Invoke-ExecAddTenant {
                 displayName                   = $displayName
                 defaultDomainName             = $defaultDomainName
                 initialDomainName             = $initialDomainName
+                cloudEnvironment              = $CloudEnvironment
                 delegatedPrivilegeStatus      = 'directTenant'
                 directTenantUserPrincipalName = $ServiceAccount
                 directTenantAuthDate          = $AuthDate
