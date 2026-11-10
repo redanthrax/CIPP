@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { CippIcons } from "../../utils/icon-registry";
 import {
   Alert,
@@ -18,6 +18,8 @@ import { ApiPostCall, ApiGetCall } from "../../api/ApiCall";
 import { CippWizardStepButtons } from "./CippWizardStepButtons";
 import { CippTenantTable } from "./CippTenantTable";
 import { getCippTranslation } from "../../utils/get-cipp-translation";
+import { CippCloudEnvironmentSelect } from "../CippComponents/CippCloudEnvironmentSelect";
+import { getDirectTenantScope } from "../../utils/cloud-environments";
 
 export const CippTenantModeDeploy = (props) => {
   const { formControl, currentStep, onPreviousStep, onNextStep } = props;
@@ -28,6 +30,8 @@ export const CippTenantModeDeploy = (props) => {
 
   const updateRefreshToken = ApiPostCall({ urlfromdata: true, relatedQueryKeys: ["listAppId"] });
   const addTenant = ApiPostCall({ urlfromdata: true, relatedQueryKeys: ["tenants-table"] });
+  // Cloud of the separate (direct) tenant being added; the partner tenant is always the instance's cloud.
+  const [directCloudEnvironment, setDirectCloudEnvironment] = useState("Commercial");
 
   // Get partner tenant info using the same API call as CIPPM365OAuthButton
   const partnerTenantInfo = ApiGetCall({
@@ -330,6 +334,12 @@ export const CippTenantModeDeploy = (props) => {
           </Box>
         )}
 
+        <CippCloudEnvironmentSelect
+          value={directCloudEnvironment}
+          onChange={setDirectCloudEnvironment}
+          disabled={!partnerTenantInfo?.data?.orgName}
+        />
+
         <Box sx={{ display: "flex", justifyContent: "flex-start", mt: 2, mb: 2 }}>
           <Stack direction="row" spacing={2} sx={{
             alignItems: "center"
@@ -363,7 +373,8 @@ export const CippTenantModeDeploy = (props) => {
                   }}
                   buttonText="Connect to Separate Tenants"
                   showSuccessAlert={false}
-                  scope="https://graph.microsoft.com/DelegatedPermissionGrant.ReadWrite.All https://graph.microsoft.com/Directory.ReadWrite.All https://graph.microsoft.com/AppRoleAssignment.ReadWrite.All offline_access profile openid"
+                  cloudEnvironment={directCloudEnvironment}
+                  scope={getDirectTenantScope(directCloudEnvironment)}
                 />
               </Box>
             </Box>
