@@ -184,11 +184,21 @@ Describe 'Get-CIPPTenantCloudEnvironment' {
     }
 
     Context 'url safety' {
-        It 'escapes a tenant id with a trailing newline instead of putting it raw in the URL' {
-            # .NET's $ anchor matches before a final newline, so validation alone lets this through
-            Mock Invoke-RestMethod { New-Discovery }
-            $null = Get-CIPPTenantCloudEnvironment -TenantId "contoso.com`n"
-            Should -Invoke Invoke-RestMethod -Times 0 -ParameterFilter { $Uri -match '[\r\n]' }
+        It 'rejects a tenant id with a trailing newline (<Name>) without calling discovery' -TestCases @(
+            @{ Name = 'domain'; TenantId = "contoso.com`n" }
+            @{ Name = 'guid'; TenantId = "11111111-2222-3333-4444-555555555555`n" }
+            @{ Name = 'crlf'; TenantId = "contoso.com`r`n" }
+        ) {
+            param($Name, $TenantId)
+            # .NET's $ anchor matches before a final newline; the patterns use \z so this is rejected
+            Mock Invoke-RestMethod { New-Discovery -Instance 'microsoftonline.us' -Scope 'USGov' }
+            Get-CIPPTenantCloudEnvironment -TenantId $TenantId -InitialDomainName 'contoso.onmicrosoft.com' | Should -Be 'Commercial'
+            Should -Invoke Invoke-RestMethod -Times 0
+        }
+
+        It 'does not treat an initial domain with a trailing newline as gov' {
+            Mock Invoke-RestMethod { throw 'unreachable' }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName "contoso.onmicrosoft.us`n" | Should -Be 'Commercial'
         }
 
         It 'only ever calls the commercial login host' {
