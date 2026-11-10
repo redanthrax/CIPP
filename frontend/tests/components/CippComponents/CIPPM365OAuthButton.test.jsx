@@ -391,9 +391,56 @@ describe('CIPPM365OAuthButton government cloud', () => {
     // the backend treats an explicit Commercial exactly like an absent value
     expect(body.cloudEnvironment).toBe('Commercial')
     const store = fetchMock.mock.calls.find(([url]) => url === '/api/ExecUpdateRefreshToken')
-    expect(JSON.parse(store[1].body)).toEqual(expect.objectContaining({ tenantId: 'tid-1', refreshtoken: 'r' }))
+    expect(JSON.parse(store[1].body)).toEqual(
+      expect.objectContaining({
+        tenantId: 'tid-1',
+        refreshtoken: 'r',
+        cloudEnvironment: 'Commercial',
+        accessToken: `h.${payload}.s`,
+      })
+    )
     expect(onAuthSuccess).toHaveBeenCalledWith(
       expect.objectContaining({ cloudEnvironment: 'Commercial', accessToken: `h.${payload}.s` })
+    )
+  })
+
+  it('stops without reporting success when the backend refuses to store the refresh token', async () => {
+    api.get = listAppId({ applicationId: APP_ID, govApplicationId: GOV_APP_ID })
+    const payload = btoa(JSON.stringify({ tid: 'tid-1', aud: 'https://graph.microsoft.us' }))
+    const fetchMock = vi.fn(async (url) =>
+      url === '/api/ExecUpdateRefreshToken'
+        ? {
+            ok: false,
+            status: 400,
+            json: async () => ({ Results: { resultText: 'The stored credentials were not changed.' } }),
+          }
+        : {
+            ok: true,
+            status: 200,
+            json: async () => ({ access_token: `h.${payload}.s`, refresh_token: 'r', expires_in: 3600 }),
+          }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const onAuthSuccess = vi.fn()
+    const onAuthError = vi.fn()
+    renderWithTheme(
+      <CIPPM365OAuthButton
+        cloudEnvironment="USGovHigh"
+        onAuthSuccess={onAuthSuccess}
+        onAuthError={onAuthError}
+      />
+    )
+
+    fireEvent.click(authButton())
+    await act(async () => {})
+    const state = new URL(popup.location).searchParams.get('state')
+    await act(async () => {
+      lastChannel().onmessage({ data: { type: 'auth_code', code: 'abc', state } })
+    })
+
+    expect(onAuthSuccess).not.toHaveBeenCalled()
+    expect(onAuthError).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'refresh_token_refused' })
     )
   })
 

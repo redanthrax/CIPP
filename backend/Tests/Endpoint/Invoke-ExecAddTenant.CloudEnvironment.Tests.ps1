@@ -38,6 +38,7 @@ BeforeAll {
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPAccessTokenCloudEnvironment.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Resolve-CIPPSignInCloud.ps1')
 
     $script:Audience = @{ Commercial = 'https://graph.microsoft.com'; USGovHigh = 'https://graph.microsoft.us'; USGovDoD = 'https://dod-graph.microsoft.us' }
     function New-TestJwt {
@@ -302,7 +303,7 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             $script:Written[0].directTenantUserPrincipalName | Should -Be 'admin@contoso.onmicrosoft.us'
         }
 
-        It 'rejects a refresh signed in to <TokenCloud> for a tenant stored as <Stored>, discarding the token' -TestCases @(
+        It 'rejects a refresh signed in to <TokenCloud> for a tenant stored as <Stored>, keeping the stored token' -TestCases @(
             @{ Stored = 'USGovDoD'; TokenCloud = 'USGovHigh' }
             @{ Stored = 'USGovHigh'; TokenCloud = 'Commercial' }
             @{ Stored = 'Commercial'; TokenCloud = 'USGovHigh' }
@@ -319,7 +320,20 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
 
             $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
             $script:Written.Count | Should -Be 0
-            Should -Invoke Remove-CIPPDirectTenantToken -Times 1 -ParameterFilter { $TenantId -eq $script:TenantId }
+            # ExecUpdateRefreshToken refused this sign-in, so the stored token is the working one.
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
+        }
+
+        It 'keeps an existing direct tenant''s stored token when the sign-in token cannot be classified' {
+            $script:ExistingTenant = [pscustomobject]@{
+                PartitionKey = 'Tenants'; RowKey = $script:TenantId; customerId = $script:TenantId
+                displayName = 'Contoso Gov'; defaultDomainName = 'contoso.us'
+                delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'USGovHigh'
+            }
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest -AccessToken 'not-a-jwt')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $script:Written.Count | Should -Be 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
         }
 
         It 'leaves a legacy row without a cloud value untouched on a commercial refresh' {

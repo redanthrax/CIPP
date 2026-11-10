@@ -28,22 +28,12 @@ function Invoke-ExecAddTenant {
         $ServiceAccount = $Request.body.username ?? ''
         $AuthDate = (Get-Date).ToUniversalTime()
 
-        # Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user
-        # picked; absent means Commercial, as before. The token itself has to agree with it.
-        $RequestedCloud = if ($null -eq $Request.body.cloudEnvironment) { 'Commercial' } else { $Request.body.cloudEnvironment }
         $TokenCloud = $null
         $TokenCloudError = $null
         try {
-            if ($RequestedCloud -isnot [string]) { throw 'Invalid cloudEnvironment.' }
-            $TokenEndpoint = Get-CIPPCloudEndpoint -CloudEnvironment $RequestedCloud
-            $TokenInfo = Get-CIPPAccessTokenCloudEnvironment -AccessToken ([string]$Request.body.accessToken)
-            $RequestedFamily = if ($TokenEndpoint.IsGovernment) { 'Government' } else { 'Commercial' }
-            if ($TokenInfo.CloudEnvironment -and $TokenInfo.CloudEnvironment -cne $TokenEndpoint.CloudEnvironment) {
-                throw "The sign-in token is for $($TokenInfo.CloudEnvironment), not the selected $($TokenEndpoint.CloudEnvironment)."
-            }
-            if ($TokenInfo.Family -and $TokenInfo.Family -ne $RequestedFamily) {
-                throw "The sign-in token is from the $($TokenInfo.Family) cloud, not the selected $($TokenEndpoint.CloudEnvironment)."
-            }
+            # Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user
+            # picked; absent means Commercial, as before. The token itself has to agree with it.
+            $TokenEndpoint = Resolve-CIPPSignInCloud -CloudEnvironment $Request.body.cloudEnvironment -AccessToken ([string]$Request.body.accessToken)
             $TokenCloud = $TokenEndpoint.CloudEnvironment
         } catch {
             $TokenCloudError = $_.Exception.Message
@@ -72,18 +62,20 @@ function Invoke-ExecAddTenant {
             $StatusCode = [HttpStatusCode]::BadRequest
             Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked conversion of GDAP tenant $($ExistingTenant.displayName) to a Direct Tenant, attempted by $ServiceAccount." -Sev 'Warning'
         } elseif (-not $TokenCloud) {
-            # The token's cloud could not be established or contradicts the selected cloud. The sign-in
-            # already stored its refresh token; it is not trusted for any cloud, so discard it.
-            Remove-CIPPDirectTenantToken -TenantId $tenantId
+            # The token's cloud could not be established or contradicts the selected cloud. For a new
+            # tenant the sign-in already stored its refresh token; it is not trusted for any cloud, so
+            # discard it. An existing direct tenant keeps its token: ExecUpdateRefreshToken refuses to
+            # overwrite it with a sign-in that fails this same check, so what is stored is the working one.
+            if (-not $ExistingTenant) { Remove-CIPPDirectTenantToken -TenantId $tenantId }
             Write-LogMessage -tenantid $tenantId -API 'NewTenant' -message "Blocked adding or refreshing tenant $tenantId with ${ServiceAccount}: $TokenCloudError" -Sev 'Warning'
             $Results = @{'message' = "The sign-in could not be verified for the selected cloud: $TokenCloudError Choose the cloud the tenant is in and sign in again."; 'severity' = 'error' }
             $StatusCode = [HttpStatusCode]::BadRequest
         } elseif ($ExistingTenant -and $TokenCloud -cne $(if ($ExistingTenant.cloudEnvironment) { [string]$ExistingTenant.cloudEnvironment } elseif ([string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD)) { 'Commercial' } else { Get-CIPPPartnerCloudEnvironment })) {
-            # A refresh signed in to a different cloud than the one stored for the tenant. The new refresh
-            # token does not work for the stored cloud, so it is discarded rather than kept.
-            Remove-CIPPDirectTenantToken -TenantId $tenantId
+            # A refresh signed in to a different cloud than the one stored for the tenant. The stored refresh
+            # token is left alone: ExecUpdateRefreshToken refuses a sign-in for another cloud before
+            # storing it, so the stored token is still the tenant's working one (redanthrax/CIPP#2).
             $StoredCloud = if ($ExistingTenant.cloudEnvironment) { $ExistingTenant.cloudEnvironment } else { 'the partner cloud' }
-            Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked refreshing $($ExistingTenant.displayName): $ServiceAccount signed in to $TokenCloud but the tenant is stored as $StoredCloud. The new refresh token was discarded." -Sev 'Warning'
+            Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked refreshing $($ExistingTenant.displayName): $ServiceAccount signed in to $TokenCloud but the tenant is stored as $StoredCloud." -Sev 'Warning'
             $Results = @{'message' = "$($ExistingTenant.displayName) is stored as $StoredCloud, but the sign-in was for $TokenCloud. Sign in again choosing $StoredCloud, or change the tenant's cloud environment first."; 'severity' = 'error' }
             $StatusCode = [HttpStatusCode]::BadRequest
         } elseif ($ExistingTenant) {
