@@ -246,6 +246,17 @@ function Get-GraphToken {
                     [CIPP.CIPPTokenCache]::Remove($CloudMarkerKey)
                 }
             }
+        } elseif ($AuthBody.grant_type -eq 'refresh_token') {
+            # An explicit -AppID without -AppSecret redeems a stored refresh token (a direct tenant's or the
+            # partner's) at the commercial authority. Unless that token is commercial, refuse before any
+            # request rather than send a government tenant's refresh token to the commercial host.
+            $DirectRow = $tenantid -ne $env:TenantID -and $clientType.delegatedPrivilegeStatus -eq 'directTenant'
+            $StoredCloud = if ($DirectRow) { [string](@($ClientType)[0].cloudEnvironment) } else { '' }
+            $PartnerIsCommercial = [string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD) -or $env:CIPP_PARTNER_CLOUD -ceq 'Commercial'
+            $StoredTokenIsCommercial = if ($StoredCloud) { $StoredCloud -ceq 'Commercial' } else { $PartnerIsCommercial }
+            if (-not $StoredTokenIsCommercial) {
+                throw 'Explicit app credentials cannot redeem a government tenant''s stored refresh token (redanthrax/CIPP#2).'
+            }
         }
 
         # Rebuild cache key after credential loading (env vars may have been set by Get-CIPPAuthentication)
