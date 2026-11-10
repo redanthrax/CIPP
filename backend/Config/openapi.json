@@ -13156,7 +13156,11 @@
                 "properties": {
                   "accessToken": {
                     "type": "string",
-                    "description": "Get tenant information from Microsoft Graph using bulk request"
+                    "description": "Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user picked; absent means Commercial, as before. The token itself has to agree with it."
+                  },
+                  "cloudEnvironment": {
+                    "type": "string",
+                    "description": "Which cloud the sign-in was for (redanthrax/CIPP#2). The consent flow sends the cloud the user picked; absent means Commercial, as before. The token itself has to agree with it."
                   },
                   "defaultDomainName": {
                     "type": "string"
@@ -26254,6 +26258,79 @@
           }
         ],
         "x-cipp-role": "CIPP.Extension.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecGovAppCredentials": {
+      "post": {
+        "summary": "Status and configuration of the Azure Government app registration used for direct GCC High and DoD tenants.",
+        "operationId": "ExecGovAppCredentials",
+        "tags": [
+          "CIPP > Setup"
+        ],
+        "description": "Actions: Status (default) reports what is configured without returning any secret; Save stores the application id and, when given, a new client secret; GenerateCertificate creates a certificate for the app, stores its private key next to the SAM certificate and returns only the public certificate to upload to the app registration.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Action": {
+                    "type": "string"
+                  },
+                  "applicationId": {
+                    "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "applicationSecret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Not described statically: this endpoint returns the upstream response as-is, so its fields are determined by the upstream API rather than by CIPP. Call the endpoint to see the actual shape, or add a response schema in backend/Config/openapi-overrides."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.AppSettings.ReadWrite",
         "x-cipp-any-tenant": true
       }
     },
@@ -42030,6 +42107,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "cloudEnvironment": {
+                    "type": "string",
+                    "description": "Direct government tenants (redanthrax/CIPP#2) consent against their cloud's authority with the Azure Government app. Absent or 'Commercial' keeps the commercial exchange exactly as before; anything else must be an exact cloud name, and the token endpoint then comes from the fixed map."
+                  },
                   "tenantId": {
                     "type": "string"
                   },
@@ -42484,6 +42565,16 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "accessToken": {
+                    "type": "string"
+                  },
+                  "cloudEnvironment": {
+                    "type": "string"
+                  },
+                  "directTenant": {
+                    "type": "boolean",
+                    "description": "A direct-tenant sign-in must never replace the partner tenant's refresh token, which backs every GDAP tenant. The direct-tenant buttons send directTenant = true; a partner account used there is refused here, before anything is written (ExecAddTenant would refuse it later, too late)."
+                  },
                   "refreshtoken": {
                     "type": "string"
                   },
