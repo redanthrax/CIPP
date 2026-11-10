@@ -374,6 +374,7 @@ export const CippTenantModeDeploy = (props) => {
                   buttonText="Connect to Separate Tenants"
                   showSuccessAlert={false}
                   cloudEnvironment={directCloudEnvironment}
+                  directTenant
                   scope={getDirectTenantScope(directCloudEnvironment)}
                 />
               </Box>

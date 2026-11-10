@@ -41,6 +41,7 @@ describe('CippDirectTenantDeploy cloud choice', () => {
     renderWithTheme(<Harness />)
     const props = buttonProps.at(-1)
     expect(props.cloudEnvironment).toBe('Commercial')
+    expect(props.directTenant).toBe(true)
     expect(props.scope).toBe(
       'https://graph.microsoft.com/DelegatedPermissionGrant.ReadWrite.All https://graph.microsoft.com/Directory.ReadWrite.All https://graph.microsoft.com/AppRoleAssignment.ReadWrite.All offline_access profile openid'
     )

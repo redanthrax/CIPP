@@ -42571,6 +42571,10 @@
                   "cloudEnvironment": {
                     "type": "string"
                   },
+                  "directTenant": {
+                    "type": "boolean",
+                    "description": "A direct-tenant sign-in must never replace the partner tenant's refresh token, which backs every GDAP tenant. The direct-tenant buttons send directTenant = true; a partner account used there is refused here, before anything is written (ExecAddTenant would refuse it later, too late)."
+                  },
                   "refreshtoken": {
                     "type": "string"
                   },

@@ -68,6 +68,7 @@ export const CippDirectTenantDeploy = (props) => {
               buttonText="Connect to Tenant"
               showSuccessAlert={false}
               cloudEnvironment={cloudEnvironment}
+              directTenant
               scope={getDirectTenantScope(cloudEnvironment)}
             />
           </Stack>

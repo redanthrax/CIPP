@@ -24,6 +24,9 @@ export const CIPPM365OAuthButton = ({
   // Which Microsoft cloud to sign in to (redanthrax/CIPP#2). A government cloud signs in at its own
   // authority with the Azure Government app instead of CIPP-SAM.
   cloudEnvironment = 'Commercial',
+  // Set by the direct-tenant (per-tenant) sign-in buttons. The backend then refuses a partner tenant
+  // account instead of replacing the partner refresh token.
+  directTenant = false,
 }) => {
   const cloud = getCloudEnvironment(cloudEnvironment)
   const isGovCloud = !cloud || cloud.isGovernment
@@ -619,6 +622,7 @@ export const CIPPM365OAuthButton = ({
                   // its stored cloud; the backend checks both before storing (redanthrax/CIPP#2).
                   cloudEnvironment: cloud.value,
                   accessToken: tokenData.access_token,
+                  directTenant: directTenant === true,
                 }),
               })
 

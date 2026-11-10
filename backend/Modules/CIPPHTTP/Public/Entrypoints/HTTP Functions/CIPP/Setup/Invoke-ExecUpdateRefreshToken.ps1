@@ -32,6 +32,17 @@ function Invoke-ExecUpdateRefreshToken {
         }
     }
 
+    # A direct-tenant sign-in must never replace the partner tenant's refresh token, which backs every
+    # GDAP tenant. The direct-tenant buttons send directTenant = true; a partner account used there is
+    # refused here, before anything is written (ExecAddTenant would refuse it later, too late).
+    if ($Request.Body.directTenant -eq $true -and $TenantId -eq $env:TenantID) {
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantId -message 'Refused a direct-tenant sign-in with a partner tenant account; the partner refresh token was not changed.' -Sev 'Warning'
+        return ([HttpResponseContext]@{
+                StatusCode = [HttpStatusCode]::BadRequest
+                Body       = @{ Results = @{ resultText = 'This is your partner tenant. Sign in with an account from the tenant you want to add. The stored credentials were not changed.'; state = 'failed' } }
+            })
+    }
+
     # An existing direct tenant's token is replaced only by a sign-in to that tenant in its stored cloud
     # (redanthrax/CIPP#2). Checked before anything is written: ExecAddTenant validates later, by which
     # time the working token would already be overwritten. The access token's claims are not verified

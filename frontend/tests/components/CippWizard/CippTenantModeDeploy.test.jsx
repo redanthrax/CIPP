@@ -163,8 +163,11 @@ describe('CippTenantModeDeploy tenant cloud', () => {
     renderWithTheme(<Harness />)
     const partner = oauthProps['Change Partner Tenant']
     expect(partner.cloudEnvironment).toBeUndefined()
+    // only the direct sign-in asks the backend to refuse a partner account
+    expect(partner.directTenant).toBeUndefined()
     const direct = oauthProps['Connect to Separate Tenants']
     expect(direct.cloudEnvironment).toBe('Commercial')
+    expect(direct.directTenant).toBe(true)
     expect(direct.scope).toBe(
       'https://graph.microsoft.com/DelegatedPermissionGrant.ReadWrite.All https://graph.microsoft.com/Directory.ReadWrite.All https://graph.microsoft.com/AppRoleAssignment.ReadWrite.All offline_access profile openid'
     )
