@@ -15,6 +15,7 @@
   * [Executing the Setup Wizard](setup/installation/executing-the-setup-wizard.md)
   * [Tenant Onboarding](setup/installation/gdap-invite-wizard.md)
   * [I Want to Manage My Own Tenant](setup/installation/owntenant.md)
+  * [GCC High and DoD Direct Tenants](setup/installation/government-direct-tenants.md)
 * [Maintaining CIPP](setup/maintaining-cipp/README.md)
   * [Updating Versions](setup/maintaining-cipp/updating.md)
   * [Recommended Roles](setup/maintaining-cipp/recommended-roles.md)
