@@ -358,6 +358,15 @@ Describe 'Get-Tenants with a partner cloud setting' {
         foreach ($Row in @($Result)) { $Row.cloudEnvironment | Should -BeNullOrEmpty }
         Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Critical' -and $message -like '*CIPP_PARTNER_CLOUD*' }
     }
+
+    It 'logs an invalid setting once per process, not on every call' {
+        $script:CIPPInvalidPartnerCloudLogged = $null
+        $env:CIPP_PARTNER_CLOUD = 'GCC-High'
+        $null = Get-Tenants
+        $null = Get-Tenants
+        $null = Get-Tenants
+        Should -Invoke Write-LogMessage -Times 1 -Exactly -ParameterFilter { $Sev -eq 'Critical' -and $message -like '*CIPP_PARTNER_CLOUD*' }
+    }
 }
 
 Describe 'Get-CIPPPartnerCloudEnvironment' {

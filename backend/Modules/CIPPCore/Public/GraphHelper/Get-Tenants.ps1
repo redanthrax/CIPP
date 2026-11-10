@@ -29,7 +29,11 @@ function Get-Tenants {
             $PartnerCloud = Get-CIPPPartnerCloudEnvironment
         } catch {
             $PartnerCloud = ''
-            try { Write-LogMessage -API 'Get-Tenants' -message $_.Exception.Message -Sev 'Critical' } catch {}
+            # Get-Tenants runs on nearly every request: log a given bad value once per process, not each call.
+            if ($script:CIPPInvalidPartnerCloudLogged -cne $env:CIPP_PARTNER_CLOUD) {
+                $script:CIPPInvalidPartnerCloudLogged = $env:CIPP_PARTNER_CLOUD
+                try { Write-LogMessage -API 'Get-Tenants' -message $_.Exception.Message -Sev 'Critical' } catch {}
+            }
         }
     }
     $ExcludedFilter = "PartitionKey eq 'Tenants' and Excluded eq true"
