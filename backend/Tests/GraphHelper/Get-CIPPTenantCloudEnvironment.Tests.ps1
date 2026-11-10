@@ -101,4 +101,101 @@ Describe 'Get-CIPPTenantCloudEnvironment' {
             Get-CIPPTenantCloudEnvironment -TenantId 'bad/id' -InitialDomainName 'contoso.onmicrosoft.us' | Should -Be 'USGovHigh'
         }
     }
+
+    Context 'unexpected discovery responses' {
+        It 'returns <Expected> when discovery returns <Name>' -TestCases @(
+            @{ Name = 'an empty object'; Response = [pscustomobject]@{}; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'null'; Response = $null; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'an HTML string'; Response = '<html>Sign in</html>'; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'an error document'; Response = [pscustomobject]@{ error = 'invalid_tenant'; error_description = 'AADSTS90002' }; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'an empty object for a gov initial domain'; Response = [pscustomobject]@{}; Initial = 'contoso.onmicrosoft.us'; Expected = 'USGovHigh' }
+            @{ Name = 'only the sub scope DOD'; Response = [pscustomobject]@{ tenant_region_sub_scope = 'DOD' }; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'an unknown cloud instance'; Response = [pscustomobject]@{ cloud_instance_name = 'chinacloudapi.cn'; tenant_region_scope = 'AS' }; Initial = 'contoso.partner.onmschina.cn'; Expected = 'Commercial' }
+            @{ Name = 'a near-miss instance name'; Response = [pscustomobject]@{ cloud_instance_name = 'microsoftonline.us.evil.com'; tenant_region_scope = 'NA' }; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+            @{ Name = 'a numeric region scope'; Response = [pscustomobject]@{ cloud_instance_name = 'microsoftonline.com'; tenant_region_scope = 42 }; Initial = 'contoso.onmicrosoft.com'; Expected = 'Commercial' }
+        ) {
+            param($Name, $Response, $Initial, $Expected)
+            Mock Invoke-RestMethod { $Response }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName $Initial | Should -Be $Expected
+        }
+
+        It 'treats field values case-insensitively (<Instance>/<Scope>/<SubScope> -> <Expected>)' -TestCases @(
+            @{ Instance = 'MicrosoftOnline.US'; Scope = 'usgov'; SubScope = 'dod'; Expected = 'USGovDoD' }
+            @{ Instance = 'MICROSOFTONLINE.US'; Scope = 'USGOV'; SubScope = 'DodCon'; Expected = 'USGovHigh' }
+            @{ Instance = 'microsoftonline.com'; Scope = 'UsGov'; SubScope = 'Dod'; Expected = 'USGovDoD' }
+        ) {
+            param($Instance, $Scope, $SubScope, $Expected)
+            Mock Invoke-RestMethod { New-Discovery -Instance $Instance -Scope $Scope -SubScope $SubScope }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid | Should -Be $Expected
+        }
+
+        It 'matches an upper-case onmicrosoft.us initial domain' {
+            Mock Invoke-RestMethod { New-Discovery }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName 'CONTOSO.ONMICROSOFT.US' | Should -Be 'USGovHigh'
+        }
+
+        It 'does not treat a look-alike initial domain as gov (<Initial>)' -TestCases @(
+            @{ Initial = 'contoso.onmicrosoft.us.evil.com' }
+            @{ Initial = 'contoso-onmicrosoft.us' }
+            @{ Initial = 'onmicrosoft.us' }
+            @{ Initial = "evil.com`ncontoso.onmicrosoft.us" }
+        ) {
+            param($Initial)
+            Mock Invoke-RestMethod { throw 'unreachable' }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName $Initial | Should -Be 'Commercial'
+        }
+    }
+
+    Context 'timeouts and resilience' {
+        It 'bounds the discovery call with a timeout' {
+            Mock Invoke-RestMethod { New-Discovery }
+            $null = Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid
+            Should -Invoke Invoke-RestMethod -Times 1 -ParameterFilter { $TimeoutSec -gt 0 -and $TimeoutSec -le 30 }
+        }
+
+        It 'falls back when discovery times out' {
+            Mock Invoke-RestMethod { throw [System.Threading.Tasks.TaskCanceledException]::new('The request was canceled due to the configured HttpClient.Timeout of 15 seconds elapsing.') }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName 'contoso.onmicrosoft.us' | Should -Be 'USGovHigh'
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName 'contoso.onmicrosoft.com' | Should -Be 'Commercial'
+        }
+
+        It 'falls back on an HTTP error from discovery' {
+            Mock Invoke-RestMethod { throw [Microsoft.PowerShell.Commands.HttpResponseException]::new('Response status code does not indicate success: 400 (Bad Request).', [System.Net.Http.HttpResponseMessage]::new([System.Net.HttpStatusCode]::BadRequest)) }
+            Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid -InitialDomainName 'contoso.onmicrosoft.com' | Should -Be 'Commercial'
+        }
+
+        It 'does not throw when logging the fallback fails (<Case>)' -TestCases @(
+            @{ Case = 'discovery failed'; TenantId = '11111111-2222-3333-4444-555555555555' }
+            @{ Case = 'invalid tenant id'; TenantId = 'bad/id' }
+        ) {
+            param($Case, $TenantId)
+            Mock Invoke-RestMethod { throw 'network down' }
+            Mock Write-LogMessage { throw 'log table unavailable' }
+            { Get-CIPPTenantCloudEnvironment -TenantId $TenantId -InitialDomainName 'contoso.onmicrosoft.us' } | Should -Not -Throw
+            Get-CIPPTenantCloudEnvironment -TenantId $TenantId -InitialDomainName 'contoso.onmicrosoft.us' | Should -Be 'USGovHigh'
+        }
+
+        It 'returns exactly one string' {
+            Mock Invoke-RestMethod { New-Discovery -Instance 'microsoftonline.us' -Scope 'USGov' -SubScope 'DOD' }
+            $Result = @(Get-CIPPTenantCloudEnvironment -TenantId $script:TenantGuid)
+            $Result.Count | Should -Be 1
+            $Result[0] | Should -BeOfType [string]
+        }
+    }
+
+    Context 'url safety' {
+        It 'escapes a tenant id with a trailing newline instead of putting it raw in the URL' {
+            # .NET's $ anchor matches before a final newline, so validation alone lets this through
+            Mock Invoke-RestMethod { New-Discovery }
+            $null = Get-CIPPTenantCloudEnvironment -TenantId "contoso.com`n"
+            Should -Invoke Invoke-RestMethod -Times 0 -ParameterFilter { $Uri -match '[\r\n]' }
+        }
+
+        It 'only ever calls the commercial login host' {
+            Mock Invoke-RestMethod { New-Discovery }
+            $null = Get-CIPPTenantCloudEnvironment -TenantId 'login.microsoftonline.us'
+            Should -Invoke Invoke-RestMethod -Times 1 -ParameterFilter { ([uri]$Uri).Host -eq 'login.microsoftonline.com' -and ([uri]$Uri).Segments.Count -eq 5 }
+        }
+    }
 }
+
