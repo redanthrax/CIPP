@@ -131,6 +131,38 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
         }
     }
 
+    Context 'token tenant must match the requested tenant' {
+        It 'rejects a token for <Name> without detecting or writing' -TestCases @(
+            @{ Name = 'a different tenant'; OrgId = 'dddddddd-1111-2222-3333-444444444444' }
+            @{ Name = 'no organization id'; OrgId = $null }
+            @{ Name = 'an empty organization id'; OrgId = '' }
+        ) {
+            param($Name, $OrgId)
+            $script:OrgId = $OrgId
+            Mock Invoke-RestMethod {
+                $Batch = New-GraphBatchResponse
+                $Batch.responses[0].body.value[0].id = $script:OrgId
+                $Batch
+            }
+
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.severity | Should -Be 'error'
+            $script:Written.Count | Should -Be 0
+            Should -Invoke Get-CIPPTenantCloudEnvironment -Times 0
+            Should -Invoke Start-CIPPOrchestrator -Times 0
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 1 -ParameterFilter { $TenantId -eq $script:TenantId }
+            Should -Invoke Write-LogMessage -ParameterFilter { $Sev -eq 'Warning' -and $message -like '*Blocked adding tenant*' }
+        }
+
+        It 'accepts a token whose organization id matches the requested tenant' {
+            $Response = Invoke-ExecAddTenant -Request (New-AddRequest)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            Should -Invoke Remove-CIPPDirectTenantToken -Times 0
+        }
+    }
+
     Context 'existing direct tenant' {
         It 'refreshes credentials without detecting or changing the stored cloud' {
             $script:ExistingTenant = [pscustomobject]@{
