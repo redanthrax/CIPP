@@ -2,7 +2,8 @@
 #
 # The override endpoint is the only way to correct a tenant's stored cloud (e.g. a DoD tenant that
 # detection reported as GCC High, redanthrax/CIPP#1). It must accept only the three known values,
-# only touch tenants inside the caller's scope, and only change cloudEnvironment on the row.
+# require unrestricted tenant scope and CIPP.AppSettings.ReadWrite (the same bar as adding a tenant,
+# since the cloud picks the authority and credentials CIPP uses), and only change cloudEnvironment.
 #
 # The real Get-Tenants and ConvertTo-CIPPODataFilterValue are loaded so tenant scoping and filter
 # escaping are exercised end to end against an in-memory Tenants table.
@@ -27,6 +28,7 @@ BeforeAll {
     function Get-CIPPAzDataTableEntity { param($Context, $Filter, $Property) }
     function Add-CIPPAzDataTableEntity { param($Context, $Entity, [switch]$Force) }
     function Write-LogMessage { param($headers, $API, $tenant, $TenantId, $message, $Sev, $LogData) }
+    function Test-CIPPAccess { param($Request, [switch]$TenantList) }
     function Get-CippException { param($Exception) [pscustomobject]@{ NormalizedError = "$($Exception.Exception.Message)" } }
     # An unknown tenant makes Get-Tenants rebuild from GDAP; stub that out as "no relationships"
     function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck, $ErrorAction) }
@@ -84,7 +86,9 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             }
         )
         $script:Written = [System.Collections.Generic.List[object]]::new()
+        $script:CallerTenants = @('AllTenants')
 
+        Mock Test-CIPPAccess { $script:CallerTenants }
         Mock Write-LogMessage {}
         Mock Get-CippTable { @{ Context = $tablename } }
         Mock Get-CIPPAzDataTableEntity { Find-TenantRow -Filter $Filter }
@@ -217,33 +221,46 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
         }
     }
 
-    Context 'tenant scope' {
-        It 'returns 403 for a tenant outside the caller scope and writes nothing' {
+    Context 'authorization' {
+        It 'declares CIPP.AppSettings.ReadWrite, matching Invoke-ExecAddTenant' {
+            $Help = Get-Help Invoke-EditTenantCloudEnvironment
+            $Help.Role | Should -Be 'CIPP.AppSettings.ReadWrite'
+            $Help.Functionality | Should -Match 'Entrypoint'
+        }
+
+        It 'asks Test-CIPPAccess for the caller tenant list' {
+            $null = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
+            Should -Invoke Test-CIPPAccess -Times 1 -ParameterFilter { $TenantList }
+        }
+
+        It 'returns 403 for a restricted caller even when the tenant is in scope (<Name>)' -TestCases @(
+            @{ Name = 'own tenant only'; Allowed = @('aaaaaaaa-0000-0000-0000-000000000001') }
+            @{ Name = 'several tenants'; Allowed = @('aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000002') }
+            @{ Name = 'no tenants'; Allowed = @() }
+        ) {
+            param($Name, $Allowed)
+            $script:CallerTenants = $Allowed
+            $script:CippAllowedTenantsStorage = [pscustomobject]@{ Value = $Allowed }
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+        }
+
+        It 'rejects a restricted caller before any tenant lookup or Graph call' {
+            $script:CallerTenants = @($script:ContosoId)
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId 'cccccccc-0000-0000-0000-000000000003' -CloudEnvironment 'USGovHigh')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
+            Should -Invoke Get-CIPPAzDataTableEntity -Times 0
+            Should -Invoke New-GraphGetRequest -Times 0
+        }
+    }
+
+    Context 'tenant lookup' {
+        It 'still narrows the lookup to the request scope (defence in depth)' {
             $script:CippAllowedTenantsStorage = [pscustomobject]@{ Value = @($script:ContosoId) }
             $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId $script:FabrikamId -CloudEnvironment 'Commercial')
             $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
             Should -Invoke Add-CIPPAzDataTableEntity -Times 0
-        }
-
-        It 'returns 403 when the out-of-scope tenant is named by domain' {
-            $script:CippAllowedTenantsStorage = [pscustomobject]@{ Value = @($script:ContosoId) }
-            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId 'fabrikam.onmicrosoft.us' -CloudEnvironment 'Commercial')
-            $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
-            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
-        }
-
-        It 'returns 403 for a caller whose scope resolved to no tenants' {
-            $script:CippAllowedTenantsStorage = [pscustomobject]@{ Value = @() }
-            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
-            $Response.StatusCode | Should -Be ([HttpStatusCode]::Forbidden)
-            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
-        }
-
-        It 'allows a tenant inside the caller scope' {
-            $script:CippAllowedTenantsStorage = [pscustomobject]@{ Value = @($script:ContosoId) }
-            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
-            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
-            $script:Written[0].RowKey | Should -Be $script:ContosoId
         }
 
         It 'returns 403 for an unknown tenant' {
