@@ -8,6 +8,8 @@ BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudScope.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudUri.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Resolve-CIPPCloudHost.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPAccessTokenCloudEnvironment.ps1')
 
     function New-TestJwt {
@@ -32,6 +34,30 @@ Describe 'Get-CIPPCloudEndpoint' {
         $Endpoint.GraphHost | Should -BeExactly $Graph
         $Endpoint.GraphUrl | Should -BeExactly "https://$Graph"
         $Endpoint.GraphScope | Should -BeExactly "https://$Graph/.default"
+        $Endpoint.ServiceHosts['Graph'] | Should -BeExactly $Graph
+    }
+
+    It 'maps <Cloud> to the documented service hosts' -TestCases @(
+        @{ Cloud = 'Commercial'; Exchange = 'outlook.office365.com'; Management = 'manage.office.com'; Defender = 'api.securitycenter.microsoft.com'; SharePoint = 'sharepoint.com' }
+        @{ Cloud = 'USGovHigh'; Exchange = 'outlook.office365.us'; Management = 'manage.office365.us'; Defender = 'api-gov.securitycenter.microsoft.us'; SharePoint = 'sharepoint.us' }
+        @{ Cloud = 'USGovDoD'; Exchange = 'webmail.apps.mil'; Management = 'manage.protection.apps.mil'; Defender = 'api-gov.securitycenter.microsoft.us'; SharePoint = 'sharepoint-mil.us' }
+    ) {
+        param($Cloud, $Exchange, $Management, $Defender, $SharePoint)
+        $Endpoint = Get-CIPPCloudEndpoint -CloudEnvironment $Cloud
+        $Endpoint.ExchangeHost | Should -BeExactly $Exchange
+        $Endpoint.ManagementHost | Should -BeExactly $Management
+        $Endpoint.DefenderHost | Should -BeExactly $Defender
+        $Endpoint.SharePointSuffix | Should -BeExactly $SharePoint
+        $Endpoint.ServiceHosts['Exchange'] | Should -BeExactly $Exchange
+        $Endpoint.ServiceHosts['Management'] | Should -BeExactly $Management
+        $Endpoint.ServiceHosts['Defender'] | Should -BeExactly $Defender
+        @($Endpoint.ServiceHosts.Keys) | Sort-Object | Should -Be @('Defender', 'Exchange', 'Graph', 'Management')
+    }
+
+    It 'does not let a caller change the service hosts' {
+        $Endpoint = Get-CIPPCloudEndpoint -CloudEnvironment 'USGovHigh'
+        { $Endpoint.ServiceHosts['Graph'] = 'evil.example' } | Should -Throw
+        (Get-CIPPCloudEndpoint -CloudEnvironment 'USGovHigh').ServiceHosts['Graph'] | Should -BeExactly 'graph.microsoft.us'
     }
 
     It 'throws for <Name>' -TestCases @(
@@ -82,19 +108,38 @@ Describe 'ConvertTo-CIPPCloudScope' {
         ConvertTo-CIPPCloudScope -Scope 'https://dod-graph.microsoft.us/.default' -CloudEnvironment 'USGovDoD' | Should -BeExactly 'https://dod-graph.microsoft.us/.default'
     }
 
-    It 'throws for a non-Graph resource on a government tenant: <Scope>' -TestCases @(
-        @{ Scope = 'https://outlook.office365.com/.default' }
+    It 'maps the <Service> scope to the <Cloud> resource' -TestCases @(
+        @{ Service = 'Exchange'; Cloud = 'USGovHigh'; Scope = 'https://outlook.office365.com/.default'; Expected = 'https://outlook.office365.us/.default' }
+        @{ Service = 'Exchange'; Cloud = 'USGovDoD'; Scope = 'https://outlook.office365.com/.default'; Expected = 'https://webmail.apps.mil/.default' }
+        @{ Service = 'Management'; Cloud = 'USGovHigh'; Scope = 'https://manage.office.com/.default'; Expected = 'https://manage.office365.us/.default' }
+        @{ Service = 'Management'; Cloud = 'USGovDoD'; Scope = 'https://manage.office.com/.default'; Expected = 'https://manage.protection.apps.mil/.default' }
+        @{ Service = 'Defender'; Cloud = 'USGovHigh'; Scope = 'https://api.securitycenter.microsoft.com/.default'; Expected = 'https://api-gov.securitycenter.microsoft.us/.default' }
+        @{ Service = 'Defender (old name)'; Cloud = 'USGovDoD'; Scope = 'https://api.securitycenter.windows.com/.default'; Expected = 'https://api-gov.securitycenter.microsoft.us/.default' }
+        @{ Service = 'SharePoint'; Cloud = 'USGovHigh'; Scope = 'https://contoso-admin.sharepoint.us/.default'; Expected = 'https://contoso-admin.sharepoint.us/.default' }
+        @{ Service = 'SharePoint'; Cloud = 'USGovDoD'; Scope = 'https://contoso-admin.sharepoint-mil.us/.default'; Expected = 'https://contoso-admin.sharepoint-mil.us/.default' }
+    ) {
+        param($Service, $Cloud, $Scope, $Expected)
+        ConvertTo-CIPPCloudScope -Scope $Scope -CloudEnvironment $Cloud | Should -BeExactly $Expected
+    }
+
+    It 'throws for a resource with no government host: <Scope>' -TestCases @(
         @{ Scope = 'https://api.partnercenter.microsoft.com/.default' }
-        @{ Scope = 'https://manage.office.com/.default' }
+        @{ Scope = 'https://api.partnercenter.microsoft.com/user_impersonation' }
+        @{ Scope = 'https://ps.compliance.protection.outlook.com/.default' }
+        @{ Scope = 'https://outlook.office.com/.default' }
+        @{ Scope = 'https://admin.microsoft.com/.default' }
+        @{ Scope = 'https://contoso-admin.sharepoint.com/.default' }
         @{ Scope = 'https://graph.microsoft.com.evil.example/.default' }
+        @{ Scope = 'http://graph.microsoft.com/.default' }
         @{ Scope = '00000002-0000-0ff1-ce00-000000000000/.default' }
+        @{ Scope = '48ac35b8-9aa8-4d74-927d-1f4a14a0b239/.default' }
     ) {
         param($Scope)
-        { ConvertTo-CIPPCloudScope -Scope $Scope -CloudEnvironment 'USGovHigh' } | Should -Throw '*not yet supported for government tenants*'
+        { ConvertTo-CIPPCloudScope -Scope $Scope -CloudEnvironment 'USGovHigh' } | Should -Throw '*not supported for government tenants*'
     }
 
     It 'does not accept the GCC High Graph host for a DoD tenant' {
-        { ConvertTo-CIPPCloudScope -Scope 'https://graph.microsoft.us/.default' -CloudEnvironment 'USGovDoD' } | Should -Throw '*not yet supported*'
+        { ConvertTo-CIPPCloudScope -Scope 'https://graph.microsoft.us/.default' -CloudEnvironment 'USGovDoD' } | Should -Throw '*not supported for government tenants*'
     }
 
     It 'throws for an unknown cloud' {
