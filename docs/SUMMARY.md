@@ -512,6 +512,7 @@
   * [Project Structure](dev-documentation/cipp-dev-guide/project-structure.md)
   * [Frontend Testing](dev-documentation/cipp-dev-guide/frontend-testing.md)
   * [GCC High / DoD Endpoint Routing](dev-documentation/cipp-dev-guide/gcchigh-endpoint-audit.md)
+  * [GCC High / DoD Feature Support](dev-documentation/cipp-dev-guide/gcchigh-feature-support.md)
 * [Contributing to the Code](dev-documentation/contributing-to-the-code.md)
 * [Contributing to the Documentation](dev-documentation/contributing-to-the-documentation.md)
 
