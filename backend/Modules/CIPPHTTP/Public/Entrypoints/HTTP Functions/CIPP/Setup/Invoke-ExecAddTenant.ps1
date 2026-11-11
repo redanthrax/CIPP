@@ -192,6 +192,9 @@ function Invoke-ExecAddTenant {
 
             # Add tenant to table
             Add-CIPPAzDataTableEntity @TenantsTable -Entity $NewTenant -Force | Out-Null
+            # A cloud marker cached before this row existed would route the tenant's tokens and API hosts
+            # to the partner cloud for up to 15 minutes (redanthrax/CIPP#2, #3); drop it.
+            $null = Clear-CippTokenCache -TenantFilter $tenantId
             Write-LogMessage -tenant $defaultDomainName -tenantid $tenantId -API 'NewTenant' -message "Added tenant $displayName ($defaultDomainName) with Direct Tenant status ($CloudEnvironment)." -Sev 'Info'
 
             if ($CloudEnvironment -cne 'Commercial') {

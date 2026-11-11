@@ -493,6 +493,7 @@
   * [Setting Up for Local Development](dev-documentation/cipp-dev-guide/setting-up-for-local-development.md)
   * [Project Structure](dev-documentation/cipp-dev-guide/project-structure.md)
   * [Frontend Testing](dev-documentation/cipp-dev-guide/frontend-testing.md)
+  * [GCC High / DoD Endpoint Routing](dev-documentation/cipp-dev-guide/gcchigh-endpoint-audit.md)
 * [Contributing to the Code](dev-documentation/contributing-to-the-code.md)
 * [Contributing to the Documentation](dev-documentation/contributing-to-the-documentation.md)
 

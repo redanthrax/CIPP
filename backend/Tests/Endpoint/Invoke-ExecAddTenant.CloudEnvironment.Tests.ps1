@@ -33,6 +33,7 @@ BeforeAll {
     function Start-CIPPOrchestrator { param($InputObject) }
     function ConvertTo-CIPPODataFilterValue { param($Value, $Type) $Value -replace "'", "''" }
     function Get-CIPPTenantCloudEnvironment { param($TenantId, $InitialDomainName) }
+    function Clear-CippTokenCache { param($TenantFilter) }
 
     . $FunctionPath
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
