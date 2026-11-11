@@ -252,6 +252,25 @@ Describe 'Get-GraphToken cloud routing' {
             $Marker = [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0)
             $Marker.TokenPayloadJson | Should -BeExactly 'USGovHigh'
         }
+
+        It 'refreshes a stale cloud marker on a -SkipCache request, so the request host follows the token (<From> -> <To>)' -TestCases @(
+            @{ From = 'Commercial'; To = 'USGovHigh'; Scope = 'https://graph.microsoft.us/.default' }
+            @{ From = 'USGovHigh'; To = 'Commercial'; Scope = 'https://graph.microsoft.com/.default' }
+        ) {
+            param($From, $To, $Scope)
+            # Another worker cached the old cloud for this tenant before its cloud changed (redanthrax/CIPP#3):
+            # a -SkipCache token reads the table afresh, and the request helpers must not then pick a host
+            # from the old marker (a government token sent to graph.microsoft.com, or the reverse).
+            . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPTenantRequestCloud.ps1')
+            $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker')
+            [CIPP.CIPPTokenCache]::Store($MarkerKey, $From, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
+            $script:GovCloud = $To
+
+            $null = Get-GraphToken -tenantid $script:GovTenant -SkipCache $true
+
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Body.scope -eq $Scope }
+            Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly $To
+        }
     }
 
     Context 'Azure Government app with a certificate' {

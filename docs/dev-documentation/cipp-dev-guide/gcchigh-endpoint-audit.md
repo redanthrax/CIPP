@@ -122,6 +122,8 @@ Code that calls a non-Graph host through `New-GraphGetRequest` / `New-GraphPOSTR
 
 * `Invoke-ExecGraphRequestProfile` - routes its direct calls by cloud (above).
 * `Invoke-ExecAddTenant` - clears the tenant's cached tokens and cloud marker after writing a new direct tenant, so a marker cached before the row existed cannot route it to the partner cloud for 15 minutes.
+* `Get-GraphRequestList` - manual pagination accepted only a `graph.microsoft.com` nextLink, so page 2 of any list failed for a government tenant. It now accepts the Graph host of the tenant's own cloud and nothing else.
+* `Get-GraphToken` - refreshes the cloud marker on `-SkipCache` requests too. Before, a `-SkipCache` token (CPV refresh, `Add-CIPPApplicationPermission`, ...) read the tenant's current cloud from the table while the request helpers could still follow a stale marker, pairing a government token with `graph.microsoft.com`.
 
 ## Known limits
 

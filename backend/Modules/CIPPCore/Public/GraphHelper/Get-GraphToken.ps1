@@ -238,7 +238,10 @@ function Get-GraphToken {
                     $UseCertificate = $CloudRoute.UseCertificate
                 }
             }
-            if ($UseSharedTokenCache) {
+            # The marker is refreshed even with -SkipCache: the request helpers choose hosts from it
+            # (Get-CIPPTenantRequestCloud), so a stale marker must never outlive a fresh table read here
+            # and pair this token with another cloud's host (redanthrax/CIPP#3).
+            if ($null -ne ('CIPP.CIPPTokenCache' -as [type])) {
                 if (-not $CloudMarkerKey) { $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker') }
                 if ($CloudRoute) {
                     [CIPP.CIPPTokenCache]::Store($CloudMarkerKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
