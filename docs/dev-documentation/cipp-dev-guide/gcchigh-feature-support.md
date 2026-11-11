@@ -35,12 +35,12 @@ Each section lists features by key, with the clouds they are unsupported in and 
 
 ## Backend
 
-`Test-CIPPCloudFeatureSupport -TenantFilter <t> -Type <section> -Name <key>` returns `$false` only for a government tenant and a listed feature. It reads the tenant's cloud with `Get-CIPPTenantRequestCloud`, the same rule the request helpers route by. It returns `$true` when the cloud cannot be resolved, so the job runs exactly as before. It never logs. Each caller first checks that the tenant's cloud is not Commercial, so Commercial tenants never reach the matrix.
+`Test-CIPPCloudFeatureSupport -TenantFilter <t> -Type <section> -Name <key>` returns `$false` only for a government tenant and a listed feature. It reads the tenant's cloud with `Get-CIPPTenantRequestCloud`, the same rule the request helpers route by. It returns `$true` when the cloud cannot be resolved, so the job runs exactly as before. It never logs. If the backend copy of the matrix is missing or is not valid JSON, `Get-CIPPCloudFeatureSupport` logs one error per process and gates nothing, so jobs run as before and the #3 refusals still stop unsupported calls; it never throws, and it never reads the file for a Commercial tenant. Each caller first checks that the tenant's cloud is not Commercial, so Commercial tenants never reach the matrix.
 
 | Job | Government tenant |
 | --- | --- |
 | Classic standards | Removed from the run in `Push-CIPPStandardsList`, which sets the compare field to "Not supported for USGovHigh tenants." and writes one log line per tenant per run. `Push-CIPPStandard` also skips listed standards, without logging. |
-| Baselines | The engine writes a `Skipped-Cloud` row with the reason before the licence check. `Start-CIPPBaselineOrchestrator` writes one log line per tenant per run. |
+| Baselines | The engine writes a `Skipped-Cloud` row with the reason before the licence check, and one log line per skipped standard per run, like a disabled standard. `Start-CIPPBaselineOrchestrator` is unchanged and does no cloud lookup. |
 | Alerts | Recorded as `Skipped` in the alert run history, the task moves to its next slot, and one log line is written per run. |
 | Tests | Removed from the suite, with one log line per tenant and suite run. |
 | Cache collection | Removed from the collection, with one log line per tenant and collection run. |

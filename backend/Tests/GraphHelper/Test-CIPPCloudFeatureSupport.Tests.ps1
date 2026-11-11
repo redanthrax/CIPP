@@ -5,6 +5,7 @@
 BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     function Get-CIPPTenantRequestCloud { param($TenantFilter) }
+    function Write-LogMessage { param($API, $tenant, $message, $sev) }
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Functions/Get-CIPPCloudFeatureSupport.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Functions/Test-CIPPCloudFeatureSupport.ps1')
 
@@ -80,6 +81,36 @@ Describe 'Test-CIPPCloudFeatureSupport' {
             $Entry = Get-CIPPCloudFeatureSupport -Type 'standards' -Name 'TeamsGuestAccess' -CloudEnvironment 'USGovHigh'
             $Entry.Reason | Should -Match 'Teams admin ConfigAPI'
             $Entry.Evidence | Should -Match 'redanthrax/CIPP#3'
+        }
+    }
+
+    Context 'a missing or corrupt matrix (fails open to the #3 refusals, never throws)' {
+        BeforeEach { Mock Write-LogMessage {} }
+        AfterEach { $env:CIPPRootPath = $RepoRoot }
+
+        It 'gates nothing, logs once and does not re-read the file when <Case>' -ForEach @(
+            @{ Case = 'the file is missing'; Content = $null }
+            @{ Case = 'the file is not JSON'; Content = '{ not json' }
+        ) {
+            $Root = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+            $null = New-Item -ItemType Directory -Path (Join-Path $Root 'Config') -Force
+            if ($Content) { Set-Content -Path (Join-Path $Root 'Config/cloudFeatureSupport.json') -Value $Content }
+            $env:CIPPRootPath = $Root
+            try {
+                { Test-CIPPCloudFeatureSupport -Type 'standards' -Name 'TeamsGuestAccess' -CloudEnvironment 'USGovHigh' } | Should -Not -Throw
+                Test-CIPPCloudFeatureSupport -Type 'standards' -Name 'TeamsGuestAccess' -CloudEnvironment 'USGovHigh' | Should -BeTrue
+                Get-CIPPCloudFeatureSupport -Type 'alerts' -Name 'DefenderStatus' -CloudEnvironment 'USGovDoD' | Should -BeNullOrEmpty
+                Should -Invoke Write-LogMessage -Times 1 -Exactly -ParameterFilter { $sev -eq 'Error' }
+            } finally {
+                Remove-Item -Path $Root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It 'never reads the matrix for Commercial, so a broken file cannot affect a Commercial tenant' {
+            $env:CIPPRootPath = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().Guid)
+            Test-CIPPCloudFeatureSupport -Type 'standards' -Name 'TeamsGuestAccess' -CloudEnvironment 'Commercial' | Should -BeTrue
+            $script:CIPPCloudFeatureSupport | Should -BeNullOrEmpty
+            Should -Invoke Write-LogMessage -Times 0 -Exactly
         }
     }
 }
