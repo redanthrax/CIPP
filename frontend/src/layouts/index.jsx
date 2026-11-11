@@ -23,6 +23,8 @@ import { LegacyInfrastructureDialog } from '../components/CippComponents/LegacyI
 import { CippMaintenanceBanner } from '../components/CippComponents/CippMaintenanceBanner'
 import { CippImpersonationBanner } from '../components/CippComponents/CippImpersonationBanner'
 import { filterMenuItems, getHiddenPages } from '../utils/filter-menu-items'
+import { useTenantCloudEnvironment } from '../hooks/use-tenant-cloud'
+import { cloudLabel, getUnsupportedPage } from '../utils/cloud-feature-support'
 
 import {
   CHROME_TOP_OFFSET,
@@ -102,6 +104,14 @@ export const Layout = (props) => {
   const currentTenant = settings?.currentTenant
   const urlTenant = useSearchParams()?.get('tenantFilter')
   const [hideSidebar, setHideSidebar] = useState(false)
+  // The selected tenant's cloud (redanthrax/CIPP#4). Commercial, AllTenants, an unknown tenant and a
+  // tenant list that has not loaded yet gate nothing.
+  const pathname = usePathname()
+  const cloudEnvironment = useTenantCloudEnvironment()
+  const cloudBlockedPage = getUnsupportedPage(pathname, cloudEnvironment)
+  // Only a government cloud filters the menu, so Commercial and AllTenants (undefined) are the same
+  // value here and the menu is not rebuilt when the tenant list loads or the user switches between them.
+  const menuCloudEnvironment = cloudEnvironment === 'Commercial' ? undefined : cloudEnvironment
 
   const swaStatus = ApiGetCall({
     url: '/.auth/me',
@@ -138,6 +148,7 @@ export const Layout = (props) => {
       const filteredMenu = filterMenuItems(nativeMenuItems, {
         permissions: userPermissions,
         hiddenPages,
+        cloudEnvironment: menuCloudEnvironment,
       })
       setMenuItems(filteredMenu)
     } else if (
@@ -157,6 +168,7 @@ export const Layout = (props) => {
     currentRole.isFetching,
     featureFlags.isSuccess,
     featureFlags.data,
+    menuCloudEnvironment,
   ])
 
   const handleNavPin = useCallback(() => {
@@ -328,6 +340,21 @@ export const Layout = (props) => {
                       text={
                         'The page does not support all Tenants, please select a different tenant using the tenant selector.'
                       }
+                    />
+                  </Grid>
+                </Grid>
+              </Container>
+            </Box>
+          ) : cloudBlockedPage ? (
+            <Box sx={{ flexGrow: 1, py: 3 }}>
+              <Container maxWidth={false}>
+                <CippBreadcrumbNav mode="hierarchical" />
+                <Grid container spacing={3}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <CippImageCard
+                      title={`Not available for ${cloudLabel(cloudEnvironment)} tenants`}
+                      imageUrl="/assets/illustrations/undraw_website_ij0l.svg"
+                      text={`${cloudBlockedPage.reason} Select a different tenant using the tenant selector.`}
                     />
                   </Grid>
                 </Grid>
