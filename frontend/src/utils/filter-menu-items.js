@@ -30,17 +30,20 @@ export const getHiddenPages = (featureFlags) => {
  * Pages (items without `items`) are visible only if:
  * - They declare a non-empty `permissions` array
  * - They are not in the `hiddenPages` list
+ * - Their `unsupportedClouds` does not include `cloudEnvironment` (redanthrax/CIPP#4)
  * - The user has a permission matching one of the required permissions (exact match or pattern match)
  *
  * @param {Array} items - Menu items to filter
  * @param {Object} options - Filter options
  * @param {Array} options.permissions - Array of user permission strings (e.g. ['Exchange.Contact.Read'])
  * @param {Array} options.hiddenPages - Array of page paths to hide (e.g. ['/email/administration/mailboxes'])
+ * @param {string} [options.cloudEnvironment] - The selected tenant's cloud (e.g. 'USGovHigh'); pages
+ *   listing it in `unsupportedClouds` are hidden. Omitted or 'Commercial' hides nothing.
  * @returns {Array} Filtered menu items (a new array, never mutates input)
  */
 export const filterMenuItems = (
   items,
-  { permissions, hiddenPages = [] } = {}
+  { permissions, hiddenPages = [], cloudEnvironment } = {}
 ) => {
   // If no permissions provided, return empty array
   if (!Array.isArray(permissions)) {
@@ -58,12 +61,22 @@ export const filterMenuItems = (
         return null
       }
 
+      // Check if the selected tenant's cloud does not support the page
+      if (
+        cloudEnvironment &&
+        Array.isArray(item.unsupportedClouds) &&
+        item.unsupportedClouds.includes(cloudEnvironment)
+      ) {
+        return null
+      }
+
       // Check if this is a group (has sub-items)
       if (item.items && item.items.length > 0) {
         // Recursively filter children - groups ignore their own permissions
         const filteredSubItems = filterMenuItems(item.items, {
           permissions,
           hiddenPages,
+          cloudEnvironment,
         })
         // Keep the group only if at least one child survives
         if (filteredSubItems.length === 0) return null

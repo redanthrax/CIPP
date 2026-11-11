@@ -200,3 +200,109 @@ describe('filterMenuItems', () => {
     )
   })
 })
+
+// redanthrax/CIPP#4: pages the selected tenant's cloud does not support are hidden.
+describe('filterMenuItems cloudEnvironment', () => {
+  const cloudMenu = [
+    {
+      title: 'Security',
+      type: 'header',
+      items: [
+        {
+          title: 'Compliance',
+          items: [
+            {
+              title: 'DLP',
+              path: '/security/compliance/dlp',
+              permissions: ['Security.*'],
+              unsupportedClouds: ['USGovHigh', 'USGovDoD'],
+            },
+            {
+              title: 'DLP Templates',
+              path: '/security/compliance/dlp-templates',
+              permissions: ['Security.*'],
+            },
+          ],
+        },
+        {
+          title: 'Voice',
+          items: [
+            {
+              title: 'Business Voice',
+              path: '/teams-share/teams/business-voice',
+              permissions: ['Security.*'],
+              unsupportedClouds: ['USGovHigh'],
+            },
+          ],
+        },
+      ],
+    },
+  ]
+  const permissions = ['Security.Read']
+
+  it('hides nothing for Commercial, no cloud or AllTenants (undefined)', () => {
+    const all = filterMenuItems(cloudMenu, { permissions })
+    expect(filterMenuItems(cloudMenu, { permissions, cloudEnvironment: 'Commercial' })).toEqual(all)
+    expect(filterMenuItems(cloudMenu, { permissions, cloudEnvironment: undefined })).toEqual(all)
+    expect(pagePaths(all)).toHaveLength(3)
+  })
+
+  it('hides pages listing the cloud and drops groups left empty', () => {
+    expect(pagePaths(filterMenuItems(cloudMenu, { permissions, cloudEnvironment: 'USGovHigh' }))).toEqual([
+      'Security > Compliance > DLP Templates',
+    ])
+    expect(pagePaths(filterMenuItems(cloudMenu, { permissions, cloudEnvironment: 'USGovDoD' }))).toEqual([
+      'Security > Compliance > DLP Templates',
+      'Security > Voice > Business Voice',
+    ])
+  })
+
+  it('still applies permissions and hiddenPages with a cloud', () => {
+    expect(filterMenuItems(cloudMenu, { permissions: ['Other.Read'], cloudEnvironment: 'USGovHigh' })).toEqual([])
+    expect(
+      filterMenuItems(cloudMenu, {
+        permissions,
+        cloudEnvironment: 'USGovDoD',
+        hiddenPages: ['/security/compliance/dlp-templates'],
+      }).map((item) => item.title)
+    ).toEqual(['Security'])
+  })
+
+  describe('against the real navigation config', () => {
+    const everyPermission = [
+      ...new Set(
+        leafPages(nativeMenuItems).flatMap((page) =>
+          (page.permissions ?? []).flatMap((perm) => [perm.replace('*', 'Read'), perm.replace('*', 'ReadWrite')])
+        )
+      ),
+    ]
+
+    it('shows a Commercial tenant exactly the menu it shows without a cloud', () => {
+      expect(
+        filterMenuItems(nativeMenuItems, { permissions: everyPermission, cloudEnvironment: 'Commercial' })
+      ).toEqual(filterMenuItems(nativeMenuItems, { permissions: everyPermission }))
+    })
+
+    it('hides the matrix pages for a GCC High tenant and keeps everything else', () => {
+      const all = leafPages(filterMenuItems(nativeMenuItems, { permissions: everyPermission })).map((p) => p.path)
+      const gov = leafPages(
+        filterMenuItems(nativeMenuItems, { permissions: everyPermission, cloudEnvironment: 'USGovHigh' })
+      ).map((p) => p.path)
+      const hidden = all.filter((path) => !gov.includes(path))
+      expect(hidden.sort()).toEqual(
+        [
+          '/copilot/reports/copilot-adoption',
+          '/copilot/reports/copilot-trend',
+          '/copilot/reports/copilot-usage',
+          '/security/compliance/dlp',
+          '/security/compliance/labels',
+          '/security/compliance/retention',
+          '/security/compliance/sit',
+          '/teams-share/teams/business-voice',
+          '/tenant/reports/graph-office-reports',
+        ].sort()
+      )
+      expect(gov).toContain('/security/compliance/dlp-templates')
+    })
+  })
+})
