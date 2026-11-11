@@ -25,6 +25,7 @@ BeforeAll {
     function New-CIPPSAMCertificate { param($SubjectName) }
     function Set-CIPPSAMCertificate { param($PfxBase64, $Name) }
     function Test-CIPPAccess { param($Request, [switch]$TenantList) $script:TenantAccess }
+    function Get-CIPPFeatureFlag { param($Id) }
 
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Get-CIPPGovAppCredential.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Authentication/Set-CIPPGovAppCredential.ps1')
@@ -164,6 +165,40 @@ Describe 'Azure Government app credentials' {
             # The public certificate parses and carries no private key
             $Public = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([Convert]::FromBase64String($Results.certificate.publicCertificate))
             $Public.HasPrivateKey | Should -BeFalse
+        }
+
+        It 'reports the <Expected> as the credential in use (certificate auth <CertMode>, secret stored <HasSecret>)' -TestCases @(
+            @{ CertMode = $true; HasSecret = $true; Expected = 'certificate' }
+            @{ CertMode = $true; HasSecret = $false; Expected = 'certificate' }
+            @{ CertMode = $false; HasSecret = $false; Expected = 'certificate' }
+            @{ CertMode = $false; HasSecret = $true; Expected = 'secret' }
+        ) {
+            param($CertMode, $HasSecret, $Expected)
+            $script:CertMode = $CertMode
+            Mock Get-CIPPFeatureFlag { [pscustomobject]@{ Id = $Id; Enabled = $script:CertMode } }
+            $script:Vault['GovApplicationID'] = $script:GovId
+            if ($HasSecret) { $script:Vault['GovApplicationSecret'] = 'gov-secret-value' }
+
+            $Results = (Invoke-ExecGovAppCredentials -Request (New-Request)).Body.Results
+
+            $Results.certificateAuthMode | Should -Be $CertMode
+            $Results.credentialInUse | Should -BeExactly $Expected
+            Should -Invoke Get-CIPPFeatureFlag -ParameterFilter { $Id -eq 'CertificateAuthentication' }
+        }
+
+        It 'falls back to the process certificate auth mode when the feature flag cannot be read' {
+            Mock Get-CIPPFeatureFlag { throw 'table unavailable' }
+            $SavedMode = $env:CertificateAuthMode
+            try {
+                $env:CertificateAuthMode = 'True'
+                $script:Vault['GovApplicationID'] = $script:GovId
+                $script:Vault['GovApplicationSecret'] = 'gov-secret-value'
+                $Results = (Invoke-ExecGovAppCredentials -Request (New-Request)).Body.Results
+                $Results.certificateAuthMode | Should -BeTrue
+                $Results.credentialInUse | Should -BeExactly 'certificate'
+            } finally {
+                $env:CertificateAuthMode = $SavedMode
+            }
         }
 
         It 'saves the id and secret' {

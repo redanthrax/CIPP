@@ -54,11 +54,22 @@ function Invoke-ExecGovAppCredentials {
                     }
                 }
                 $Endpoint = Get-CIPPCloudEndpoint -CloudEnvironment 'USGovHigh'
+                # Which credential the gov app signs in with - the same rule as Get-CIPPCloudTokenRoute:
+                # the certificate when the instance uses certificate authentication or no secret is
+                # stored, the secret otherwise. The feature flag is what $env:CertificateAuthMode mirrors.
+                $CertificateAuthMode = try {
+                    (Get-CIPPFeatureFlag -Id 'CertificateAuthentication').Enabled -eq $true
+                } catch {
+                    [bool]$env:CertificateAuthMode
+                }
+                $CredentialInUse = if ($CertificateAuthMode -or -not $Credential.HasSecret) { 'certificate' } else { 'secret' }
                 $Results = @{
-                    configured    = [bool]$Credential.Configured
-                    applicationId = $Credential.ApplicationId
-                    hasSecret     = [bool]$Credential.HasSecret
-                    certificate   = $Certificate
+                    configured          = [bool]$Credential.Configured
+                    applicationId       = $Credential.ApplicationId
+                    hasSecret           = [bool]$Credential.HasSecret
+                    certificateAuthMode = [bool]$CertificateAuthMode
+                    credentialInUse     = $CredentialInUse
+                    certificate         = $Certificate
                     authority     = "$($Endpoint.Authority)/organizations"
                     redirectUri   = if ($Origin) { "$Origin/authredirect" } else { $null }
                 }
