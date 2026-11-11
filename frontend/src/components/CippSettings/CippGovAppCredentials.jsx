@@ -51,6 +51,13 @@ export const CippGovAppCredentials = () => {
   const [applicationId, setApplicationId] = useState("");
   const [applicationSecret, setApplicationSecret] = useState("");
 
+  // The sign-in button sends `${window.location.origin}/authredirect` (CIPPM365OAuthButton), so that
+  // is the value to register - the backend cannot always see the browser's scheme and port.
+  const [redirectUri, setRedirectUri] = useState(null);
+  useEffect(() => {
+    if (typeof window !== "undefined") setRedirectUri(`${window.location.origin}/authredirect`);
+  }, []);
+
   useEffect(() => {
     if (data?.applicationId) setApplicationId(data.applicationId);
   }, [data?.applicationId]);
@@ -61,6 +68,17 @@ export const CippGovAppCredentials = () => {
   }, [save.isSuccess]);
 
   const idValid = GUID_PATTERN.test(applicationId.trim());
+  // An id typed but not saved yet. Generating a certificate does not save it.
+  const idUnsaved = applicationId.trim() !== "" && applicationId.trim() !== (data?.applicationId ?? "");
+  const certificateAuthMode = data?.certificateAuthMode === true;
+  const usesCertificate = data?.credentialInUse === "certificate";
+  const credentialInUseText = !data
+    ? "—"
+    : usesCertificate
+      ? certificateAuthMode
+        ? "Certificate (this instance uses certificate authentication)"
+        : "Certificate (no client secret stored)"
+      : "Client secret";
   const generatedCertificate = generate.data?.data?.Results?.publicCertificate;
   const publicCertificate = generatedCertificate ?? certificate.publicCertificate;
 
@@ -84,15 +102,19 @@ export const CippGovAppCredentials = () => {
             (portal.azure.us), not CIPP-SAM. Register a multi-tenant app there, add the redirect URI
             below as a Web redirect URI, give it the delegated Microsoft Graph permissions
             DelegatedPermissionGrant.ReadWrite.All, Directory.ReadWrite.All and
-            AppRoleAssignment.ReadWrite.All, then enter its application ID and a client secret or
-            upload the certificate generated here.
+            AppRoleAssignment.ReadWrite.All, then enter its application ID and save it. Add the
+            certificate generated here to the app registration, or a client secret if this instance
+            does not use certificate authentication.
           </Typography>
         </Grid>
         <Row label="Authority">
           <Typography variant="body2">{data?.authority ?? "—"}</Typography>
         </Row>
         <Row label="Redirect URI">
-          {data?.redirectUri ? <CippCopyToClipBoard text={data.redirectUri} type="chip" /> : "—"}
+          {redirectUri ? <CippCopyToClipBoard text={redirectUri} type="chip" /> : "—"}
+        </Row>
+        <Row label="Signs in with">
+          <Typography variant="body2">{credentialInUseText}</Typography>
         </Row>
         <Row label="Client secret">
           <Typography variant="body2">{data?.hasSecret ? "Stored" : "None"}</Typography>
@@ -122,7 +144,19 @@ export const CippGovAppCredentials = () => {
               autoComplete="new-password"
               value={applicationSecret}
               onChange={(event) => setApplicationSecret(event.target.value)}
+              disabled={certificateAuthMode}
+              helperText={
+                certificateAuthMode
+                  ? "Not used: this instance uses certificate authentication, so the Azure Government app signs in with its certificate."
+                  : " "
+              }
             />
+            {idUnsaved && idValid && (
+              <Alert severity="warning">
+                This application ID has not been saved yet. Select Save to store it; generating a
+                certificate does not save it.
+              </Alert>
+            )}
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
               <Button
                 variant="contained"
@@ -158,7 +192,13 @@ export const CippGovAppCredentials = () => {
                 </Button>
               )}
             </Stack>
-            {certificate.configured && !data?.hasSecret && (
+            {usesCertificate && !certificate.configured && (
+              <Alert severity="warning">
+                The Azure Government app signs in with a certificate, but none is stored. Generate one
+                and upload it to the app registration.
+              </Alert>
+            )}
+            {certificate.configured && usesCertificate && (
               <Alert severity="info">
                 Generating a new certificate replaces the stored one immediately. Upload it to the app
                 registration before signing in again.
