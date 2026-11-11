@@ -81,11 +81,19 @@ Describe 'Direct calls to commercial Microsoft hosts (redanthrax/CIPP#3)' {
         $Found | Should -Contain 'CIPPCore/Public/GraphHelper/New-GraphGetRequest.ps1'
     }
 
-    It 'has no unreviewed file calling a commercial Microsoft host directly: <_>' -ForEach $script:New {
-        throw "$_ makes a direct HTTP call and names a commercial Microsoft host. Route it through the request helpers (they send government tenants to their cloud) or make it fail closed for government tenants, then list it in Tests/Static/CommercialHostBypass.Tests.ps1 and docs/dev-documentation/cipp-dev-guide/gcchigh-endpoint-audit.md."
+    # One assertion per list rather than -ForEach: an empty -ForEach fails the container under Pester 6
+    # (Run.FailOnNullOrEmptyForEach), and one of the two lists is empty in every state.
+    It 'has no unreviewed file calling a commercial Microsoft host directly' -TestCases @(@{ New = $script:New }) {
+        param($New)
+        if ($New) {
+            throw "$($New -join ', ') make(s) a direct HTTP call and name(s) a commercial Microsoft host. Route it through the request helpers (they send government tenants to their cloud) or make it fail closed for government tenants, then list it in Tests/Static/CommercialHostBypass.Tests.ps1 and docs/dev-documentation/cipp-dev-guide/gcchigh-endpoint-audit.md."
+        }
     }
 
-    It 'has no stale reviewed entry: <_>' -ForEach $script:Stale {
-        throw "$_ is listed as reviewed but no longer matches (moved, renamed or fixed). Remove it from the list and the audit."
+    It 'has no stale reviewed entry' -TestCases @(@{ Stale = $script:Stale }) {
+        param($Stale)
+        if ($Stale) {
+            throw "$($Stale -join ', ') is listed as reviewed but no longer matches (moved, renamed or fixed). Remove it from the list and the audit."
+        }
     }
 }

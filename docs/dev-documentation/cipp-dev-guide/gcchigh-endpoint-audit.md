@@ -33,10 +33,10 @@ A wrong token resource fails at the government authority (`AADSTS500011`); it ne
 | `New-GraphPOSTRequest` (and `New-CIPPGraphRetry`, which calls it) | Host rewritten. |
 | `New-GraphBulkRequest` | `$batch` URL rewritten; government `nextLink`s are stripped to relative URLs for re-batching. Sub-request URLs are relative to the batch host. |
 | `New-GraphMultiTenantBulkRequest` | Each tenant's `$batch` URL follows that tenant's cloud; a routing error becomes that tenant's `Error`. |
-| `New-ExoRequest`, `New-ExoBulkRequest` | Exchange host rewritten; `-Compliance` refused. |
+| `New-ExoRequest`, `New-ExoBulkRequest` | Exchange host rewritten; each `@odata.nextLink` `New-ExoRequest` follows is checked the same way; `-Compliance` refused. |
 | `New-TeamsRequestV2` | Refused before a token is requested. |
 | `Get-ClassicAPIToken` / `New-ClassicAPIGetRequest` | Refused before the commercial token endpoint. |
-| `New-CIPPMFAConnectorToken` | Refused before the MFA service principal secret is created or sent. |
+| `New-CIPPMFAConnectorToken` | Refused before the MFA service principal secret is created or sent, and checked again just before the secret is sent (the first check reads a marker that can be stale in this worker). |
 
 Commercial tenants: one in-memory dictionary lookup per helper call (the marker; a table read at most once per 15 minutes per tenant and worker), then a string compare. Their URIs are passed on unchanged.
 
@@ -123,6 +123,7 @@ Code that calls a non-Graph host through `New-GraphGetRequest` / `New-GraphPOSTR
 * `Invoke-ExecGraphRequestProfile` - routes its direct calls by cloud (above).
 * `Invoke-ExecAddTenant` - clears the tenant's cached tokens and cloud marker after writing a new direct tenant, so a marker cached before the row existed cannot route it to the partner cloud for 15 minutes.
 * `Get-GraphRequestList` - manual pagination accepted only a `graph.microsoft.com` nextLink, so page 2 of any list failed for a government tenant. It now accepts the Graph host of the tenant's own cloud and nothing else.
+* `Get-GraphToken`, `Get-CIPPTenantRequestCloud` - trim the tenant id before the Tenants lookup, as the cache key already does. Before, `' <id>'` shared a government tenant's cache keys and cloud marker while missing its row, so it could overwrite the marker with the partner cloud.
 * `Get-GraphToken` - refreshes the cloud marker on `-SkipCache` requests too. Before, a `-SkipCache` token (CPV refresh, `Add-CIPPApplicationPermission`, ...) read the tenant's current cloud from the table while the request helpers could still follow a stale marker, pairing a government token with `graph.microsoft.com`.
 
 ## Known limits

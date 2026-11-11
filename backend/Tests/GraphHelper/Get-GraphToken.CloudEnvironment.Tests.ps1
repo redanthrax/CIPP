@@ -125,6 +125,15 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 0 -ParameterFilter { $Uri -like '*microsoftonline.com*' -or $Body.client_id -eq 'sam-app-id' -or "$($Body.scope)" -like '*graph.microsoft.com*' -or $Body.client_secret -eq 'sam-secret' }
         }
 
+        It 'treats a padded government tenant id as that tenant, not as the partner cloud (redanthrax/CIPP#3)' {
+            # The cache key trims the id; the Tenants lookup must too, or the padded id would share the
+            # tenant's keys and cloud marker while resolving to the commercial authority.
+            $null = Get-GraphToken -tenantid " $($script:GovTenant) "
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq "https://login.microsoftonline.us/$($script:GovTenant)/oauth2/v2.0/token" -and $Body.client_id -eq $script:GovAppId }
+            Should -Invoke Invoke-CIPPRestMethod -Times 0 -ParameterFilter { $Uri -like '*microsoftonline.com*' }
+            [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0).TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        }
+
         It 'caches a government token under a key naming the cloud and serves it without another table read' {
             $null = Get-GraphToken -tenantid $script:GovTenant
             $Key = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'https://graph.microsoft.us/.default', $false, $script:GovAppId, 'refresh_token@USGovHigh')
