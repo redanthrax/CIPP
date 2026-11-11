@@ -127,6 +127,10 @@ function Invoke-ExecGraphRequestProfile {
     $headers = Get-GraphToken -tenantid $TenantFilter -scope $scope
     $sw.Stop()
     Add-Timing 'GetGraphToken' "HasAuth=$([bool]$headers.Authorization)" $sw.Elapsed.TotalMilliseconds
+    # The direct calls below bypass the Graph helpers: send a government tenant's token to its own
+    # cloud's Graph host, never to graph.microsoft.com (redanthrax/CIPP#3).
+    $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $TenantFilter
+    if ($RequestCloud -cne 'Commercial') { $GraphUrl = ConvertTo-CIPPCloudUri -Uri $GraphUrl -CloudEnvironment $RequestCloud }
 
     # ── 7. Raw Invoke-RestMethod (baseline — no wrapper overhead) ──────
     $sw.Restart()
