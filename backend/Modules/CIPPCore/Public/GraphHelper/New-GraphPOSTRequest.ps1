@@ -37,6 +37,10 @@ function New-GraphPOSTRequest {
             }
         }
 
+        # A government tenant's requests go to its cloud's hosts (redanthrax/CIPP#3); commercial URIs are unchanged.
+        $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
+        if ($RequestCloud -cne 'Commercial') { $uri = ConvertTo-CIPPCloudUri -Uri $uri -CloudEnvironment $RequestCloud }
+
         $body = Get-CIPPTextReplacement -TenantFilter $tenantid -Text $body -EscapeForJson
 
         if (!$headers['User-Agent']) {

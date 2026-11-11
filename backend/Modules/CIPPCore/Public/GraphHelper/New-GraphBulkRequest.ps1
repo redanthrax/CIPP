@@ -28,6 +28,10 @@ function New-GraphBulkRequest {
         }
 
         $URL = "https://graph.microsoft.com/$Version/`$batch"
+        # A government tenant's batches go to its cloud's Graph host (redanthrax/CIPP#3). Sub-request
+        # urls are relative to the batch host, so they need no change.
+        $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
+        if ($RequestCloud -cne 'Commercial') { $URL = ConvertTo-CIPPCloudUri -Uri $URL -CloudEnvironment $RequestCloud }
         # a $batch lands its sub-requests at once, so the rate limiter can only space whole batches: no batch holds more
         # sub-requests of one measured budget (CIPPRateLimiter) than its burst
         $HasBudgets = $null -ne ('CIPP.CIPPRateLimiter' -as [type])
@@ -109,7 +113,7 @@ function New-GraphBulkRequest {
                 Write-Host $MoreData.body.'@odata.nextLink'
                 # Re-batch nextLink pagination instead of sequential calls
                 $NextLinkQueue = [System.Collections.Generic.Queue[PSCustomObject]]::new()
-                $InitialNextUrl = $MoreData.body.'@odata.nextLink' -replace 'https://graph.microsoft.com/(v1\.0|beta)', ''
+                $InitialNextUrl = $MoreData.body.'@odata.nextLink' -replace 'https://(graph\.microsoft\.com|graph\.microsoft\.us|dod-graph\.microsoft\.us)/(v1\.0|beta)', ''
                 $NextLinkQueue.Enqueue([PSCustomObject]@{
                         id  = $MoreData.id
                         url = $InitialNextUrl
@@ -171,7 +175,7 @@ function New-GraphBulkRequest {
                             $MoreData.body.value = $NewValues
                         }
                         if ($NextResponse.body.'@odata.nextLink' -and $NoPaginateIds -notcontains $NextResponse.id) {
-                            $ContinueUrl = $NextResponse.body.'@odata.nextLink' -replace 'https://graph.microsoft.com/(v1\.0|beta)', ''
+                            $ContinueUrl = $NextResponse.body.'@odata.nextLink' -replace 'https://(graph\.microsoft\.com|graph\.microsoft\.us|dod-graph\.microsoft\.us)/(v1\.0|beta)', ''
                             $NextLinkQueue.Enqueue([PSCustomObject]@{
                                     id  = $NextResponse.id
                                     url = $ContinueUrl

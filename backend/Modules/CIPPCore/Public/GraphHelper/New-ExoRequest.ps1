@@ -46,6 +46,10 @@ function New-ExoRequest {
         # -UseCertificate authenticates the app with the SAM certificate instead of the
         # client secret: delegated (refresh token) by default, app-only with -AsApp
         $token = Get-GraphToken -Tenantid $tenantid -scope "$Resource/.default" -AsApp:$AsApp.IsPresent -UseCertificate:$UseCertificate
+        # A government tenant's Exchange host (redanthrax/CIPP#3). Security & Compliance has no supported
+        # government host: its token request above already refuses it for a government tenant.
+        $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
+        if ($RequestCloud -cne 'Commercial') { $Resource = ConvertTo-CIPPCloudUri -Uri $Resource -CloudEnvironment $RequestCloud }
 
         if ($cmdParams) {
             #if cmdParams is a pscustomobject, convert to hashtable, otherwise leave as is
