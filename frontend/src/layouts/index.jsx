@@ -168,6 +168,9 @@ export const Layout = (props) => {
   const pathname = usePathname()
   const cloudEnvironment = useTenantCloudEnvironment()
   const cloudBlockedPage = getUnsupportedPage(pathname, cloudEnvironment)
+  // Only a government cloud filters the menu, so Commercial and AllTenants (undefined) are the same
+  // value here and the menu is not rebuilt when the tenant list loads or the user switches between them.
+  const menuCloudEnvironment = cloudEnvironment === 'Commercial' ? undefined : cloudEnvironment
 
   const swaStatus = ApiGetCall({
     url: '/.auth/me',
@@ -204,7 +207,7 @@ export const Layout = (props) => {
       const filteredMenu = filterMenuItems(nativeMenuItems, {
         permissions: userPermissions,
         hiddenPages,
-        cloudEnvironment,
+        cloudEnvironment: menuCloudEnvironment,
       })
       setMenuItems(filteredMenu)
     } else if (
@@ -224,7 +227,7 @@ export const Layout = (props) => {
     currentRole.isFetching,
     featureFlags.isSuccess,
     featureFlags.data,
-    cloudEnvironment,
+    menuCloudEnvironment,
   ])
 
   const handleNavPin = useCallback(() => {
