@@ -16,16 +16,26 @@ This covers signing in and getting Microsoft Graph tokens. Until the remaining g
 2. Name it (for example `CIPP-Gov`) and choose **Accounts in any organizational directory (Multitenant)**.
 3. Under **Redirect URI**, choose **Web** and enter `https://<your CIPP address>/authredirect`. The Credentials page in CIPP shows the exact value.
 4. Under **API permissions**, add these **delegated** Microsoft Graph permissions: `DelegatedPermissionGrant.ReadWrite.All`, `Directory.ReadWrite.All` and `AppRoleAssignment.ReadWrite.All`. Add any further permissions you want CIPP to use in government tenants; the tenant administrator consents to them when adding the tenant.
-5. Under **Certificates & secrets**, either create a client secret, or upload the certificate CIPP generates (step 2).
+5. Under **Certificates & secrets**, add the credential CIPP will use (step 2): the certificate CIPP generates, or a client secret. If certificate authentication is turned on for your CIPP instance, only the certificate is used.
 
 ## 2. Enter the app in CIPP
 
 Go to **CIPP > Advanced > Authentication > Credentials**. In the **Azure Government app (GCC High / DoD)** card:
 
-* Enter the **Application (client) ID** and, if you created one, the **client secret**, then select **Save**. The secret is stored in Key Vault next to the CIPP-SAM secret and is never shown again.
-* Or select **Generate certificate**, then **Download certificate** and upload the `.cer` file to the app registration. CIPP keeps the private key in Key Vault. CIPP uses the certificate when certificate authentication is turned on or no client secret is stored.
+1. Enter the **Application (client) ID** and select **Save**. Generating a certificate does not save the ID, and the card warns you while an ID is unsaved.
+2. Add a credential:
+   * **Certificate:** select **Generate certificate**, then **Download certificate**, and upload the `.cer` file to the app registration. CIPP keeps the private key in Key Vault. Compare the thumbprint shown in the card with the one in the app registration.
+   * **Client secret:** enter it and select **Save**. It is stored in Key Vault next to the CIPP-SAM secret and is never shown again.
 
-Changing these values needs the `CIPP.AppSettings.ReadWrite` permission, the same as the CIPP-SAM credentials.
+The **Signs in with** row shows which credential CIPP will use. It uses the certificate when certificate authentication is turned on for the instance, or when no client secret is stored, and the client secret otherwise. When certificate authentication is on, the client secret field is disabled because a secret would not be used.
+
+The **Redirect URI** row shows the exact value to register: your CIPP address followed by `/authredirect`.
+
+Changing these values needs the `CIPP.AppSettings.ReadWrite` permission **and** unrestricted tenant access (all tenants), the same as adding a tenant. Viewing the card's status only needs `CIPP.AppSettings.ReadWrite`.
+
+{% hint style="warning" %}
+**Generate new certificate** replaces the stored certificate immediately. If the instance signs in with the certificate, government tenants fail until you upload the new `.cer` to the app registration.
+{% endhint %}
 
 ## 3. Add the tenant
 
