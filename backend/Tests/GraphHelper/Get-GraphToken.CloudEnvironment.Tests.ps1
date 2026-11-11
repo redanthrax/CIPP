@@ -29,6 +29,8 @@ BeforeAll {
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-GraphTokenFromCert.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudScope.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudUri.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Resolve-CIPPCloudHost.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudTokenRoute.ps1')
 
@@ -161,20 +163,32 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 0
         }
 
-        It 'refuses a non-Graph scope for a government tenant: <Scope>' -TestCases @(
-            @{ Scope = 'https://outlook.office365.com/.default' }
+        It 'refuses a scope with no government host for a government tenant: <Scope>' -TestCases @(
             @{ Scope = 'https://api.partnercenter.microsoft.com/.default' }
-            @{ Scope = 'https://manage.office.com/.default' }
+            @{ Scope = 'https://ps.compliance.protection.outlook.com/.default' }
+            @{ Scope = '48ac35b8-9aa8-4d74-927d-1f4a14a0b239/.default' }
         ) {
             param($Scope)
-            { Get-GraphToken -tenantid $script:GovTenant -scope $Scope } | Should -Throw '*not yet supported for government tenants*'
+            { Get-GraphToken -tenantid $script:GovTenant -scope $Scope } | Should -Throw '*not supported for government tenants*'
             Should -Invoke Invoke-CIPPRestMethod -Times 0
         }
 
-        It 'also refuses a non-Graph scope on the cached fast path' {
+        It 'also refuses such a scope on the cached fast path' {
             $null = Get-GraphToken -tenantid $script:GovTenant
-            { Get-GraphToken -tenantid $script:GovTenant -scope 'https://outlook.office365.com/.default' } | Should -Throw '*not yet supported*'
+            { Get-GraphToken -tenantid $script:GovTenant -scope 'https://api.partnercenter.microsoft.com/.default' } | Should -Throw '*not supported for government tenants*'
             Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+        }
+
+        It 'requests the <Cloud> Exchange resource from the government authority (redanthrax/CIPP#3)' -TestCases @(
+            @{ Cloud = 'USGovHigh'; Expected = 'https://outlook.office365.us/.default' }
+            @{ Cloud = 'USGovDoD'; Expected = 'https://webmail.apps.mil/.default' }
+        ) {
+            param($Cloud, $Expected)
+            $script:GovCloud = $Cloud
+            $null = Get-GraphToken -tenantid $script:GovTenant -scope 'https://outlook.office365.com/.default'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -like 'https://login.microsoftonline.us/*' -and $Body.scope -eq $Expected -and $Body.client_id -eq $script:GovAppId
+            }
         }
 
         It 'records an Entra failure on the government key, not the commercial one' {
