@@ -17,6 +17,10 @@ function Get-GraphToken {
     )
     if (!$scope) { $scope = 'https://graph.microsoft.com/.default' }
     if (!$tenantid) { $tenantid = $env:TenantID }
+    # The cache keys trim the tenant (CIPPTokenCache.BuildKey); the Tenants lookup below must see the same
+    # value, or ' <id>' would share a government tenant's keys and cloud marker while resolving to the
+    # partner cloud (redanthrax/CIPP#3).
+    if ($tenantid -is [string]) { $tenantid = $tenantid.Trim() }
 
     # Certificate-exclusive auth: force the SAM certificate for CIPP's own SAM app tokens (app-only and
     # delegated). Scoped to the SAM app - explicit $AppID/$AppSecret callers use their own credentials.
@@ -226,7 +230,10 @@ function Get-GraphToken {
                     $UseCertificate = $CloudRoute.UseCertificate
                 }
             }
-            if ($UseSharedTokenCache) {
+            # The marker is refreshed even with -SkipCache: the request helpers choose hosts from it
+            # (Get-CIPPTenantRequestCloud), so a stale marker must never outlive a fresh table read here
+            # and pair this token with another cloud's host (redanthrax/CIPP#3).
+            if ($null -ne ('CIPP.CIPPTokenCache' -as [type])) {
                 if (-not $CloudMarkerKey) { $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker') }
                 if ($CloudRoute) {
                     [CIPP.CIPPTokenCache]::Store($CloudMarkerKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)

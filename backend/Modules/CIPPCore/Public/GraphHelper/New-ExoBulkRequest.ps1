@@ -31,6 +31,9 @@ function New-ExoBulkRequest {
             $Resource = 'https://outlook.office365.com'
         }
         $Token = Get-GraphToken -Tenantid $tenantid -scope "$Resource/.default" -AsApp:$AsApp.IsPresent
+        # A government tenant's Exchange host (redanthrax/CIPP#3); the token request refuses compliance for one.
+        $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
+        if ($RequestCloud -cne 'Commercial') { $Resource = ConvertTo-CIPPCloudUri -Uri $Resource -CloudEnvironment $RequestCloud }
 
         $Tenant = Get-Tenants -IncludeErrors -TenantFilter $tenantid
         $Headers = @{

@@ -29,6 +29,8 @@ BeforeAll {
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-GraphTokenFromCert.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudEndpoint.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudScope.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/ConvertTo-CIPPCloudUri.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Resolve-CIPPCloudHost.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPCloudTokenRoute.ps1')
 
@@ -123,6 +125,15 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 0 -ParameterFilter { $Uri -like '*microsoftonline.com*' -or $Body.client_id -eq 'sam-app-id' -or "$($Body.scope)" -like '*graph.microsoft.com*' -or $Body.client_secret -eq 'sam-secret' }
         }
 
+        It 'treats a padded government tenant id as that tenant, not as the partner cloud (redanthrax/CIPP#3)' {
+            # The cache key trims the id; the Tenants lookup must too, or the padded id would share the
+            # tenant's keys and cloud marker while resolving to the commercial authority.
+            $null = Get-GraphToken -tenantid " $($script:GovTenant) "
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Uri -eq "https://login.microsoftonline.us/$($script:GovTenant)/oauth2/v2.0/token" -and $Body.client_id -eq $script:GovAppId }
+            Should -Invoke Invoke-CIPPRestMethod -Times 0 -ParameterFilter { $Uri -like '*microsoftonline.com*' }
+            [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0).TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        }
+
         It 'caches a government token under a key naming the cloud and serves it without another table read' {
             $null = Get-GraphToken -tenantid $script:GovTenant
             $Key = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'https://graph.microsoft.us/.default', $false, $script:GovAppId, 'refresh_token@USGovHigh')
@@ -161,20 +172,32 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 0
         }
 
-        It 'refuses a non-Graph scope for a government tenant: <Scope>' -TestCases @(
-            @{ Scope = 'https://outlook.office365.com/.default' }
+        It 'refuses a scope with no government host for a government tenant: <Scope>' -TestCases @(
             @{ Scope = 'https://api.partnercenter.microsoft.com/.default' }
-            @{ Scope = 'https://manage.office.com/.default' }
+            @{ Scope = 'https://ps.compliance.protection.outlook.com/.default' }
+            @{ Scope = '48ac35b8-9aa8-4d74-927d-1f4a14a0b239/.default' }
         ) {
             param($Scope)
-            { Get-GraphToken -tenantid $script:GovTenant -scope $Scope } | Should -Throw '*not yet supported for government tenants*'
+            { Get-GraphToken -tenantid $script:GovTenant -scope $Scope } | Should -Throw '*not supported for government tenants*'
             Should -Invoke Invoke-CIPPRestMethod -Times 0
         }
 
-        It 'also refuses a non-Graph scope on the cached fast path' {
+        It 'also refuses such a scope on the cached fast path' {
             $null = Get-GraphToken -tenantid $script:GovTenant
-            { Get-GraphToken -tenantid $script:GovTenant -scope 'https://outlook.office365.com/.default' } | Should -Throw '*not yet supported*'
+            { Get-GraphToken -tenantid $script:GovTenant -scope 'https://api.partnercenter.microsoft.com/.default' } | Should -Throw '*not supported for government tenants*'
             Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+        }
+
+        It 'requests the <Cloud> Exchange resource from the government authority (redanthrax/CIPP#3)' -TestCases @(
+            @{ Cloud = 'USGovHigh'; Expected = 'https://outlook.office365.us/.default' }
+            @{ Cloud = 'USGovDoD'; Expected = 'https://webmail.apps.mil/.default' }
+        ) {
+            param($Cloud, $Expected)
+            $script:GovCloud = $Cloud
+            $null = Get-GraphToken -tenantid $script:GovTenant -scope 'https://outlook.office365.com/.default'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -like 'https://login.microsoftonline.us/*' -and $Body.scope -eq $Expected -and $Body.client_id -eq $script:GovAppId
+            }
         }
 
         It 'records an Entra failure on the government key, not the commercial one' {
@@ -237,6 +260,25 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
             $Marker = [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0)
             $Marker.TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        }
+
+        It 'refreshes a stale cloud marker on a -SkipCache request, so the request host follows the token (<From> -> <To>)' -TestCases @(
+            @{ From = 'Commercial'; To = 'USGovHigh'; Scope = 'https://graph.microsoft.us/.default' }
+            @{ From = 'USGovHigh'; To = 'Commercial'; Scope = 'https://graph.microsoft.com/.default' }
+        ) {
+            param($From, $To, $Scope)
+            # Another worker cached the old cloud for this tenant before its cloud changed (redanthrax/CIPP#3):
+            # a -SkipCache token reads the table afresh, and the request helpers must not then pick a host
+            # from the old marker (a government token sent to graph.microsoft.com, or the reverse).
+            . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPTenantRequestCloud.ps1')
+            $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker')
+            [CIPP.CIPPTokenCache]::Store($MarkerKey, $From, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
+            $script:GovCloud = $To
+
+            $null = Get-GraphToken -tenantid $script:GovTenant -SkipCache $true
+
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Body.scope -eq $Scope }
+            Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly $To
         }
     }
 

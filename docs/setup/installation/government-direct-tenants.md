@@ -7,7 +7,7 @@ GCC (Moderate) tenants run on the commercial cloud. Add them as **Commercial / G
 {% endhint %}
 
 {% hint style="warning" %}
-This covers signing in and getting Microsoft Graph tokens. Until the remaining government cloud work lands, most CIPP pages still call commercial endpoints and will not return data for a government tenant, and the automatic permission push is skipped for them.
+CIPP sends a government tenant's requests to that cloud's hosts: Microsoft Graph, Exchange Online (`outlook.office365.us` for GCC High, `webmail.apps.mil` for DoD), the Office 365 Management API, Defender for Endpoint and SharePoint. Features built on services with no documented government endpoint CIPP can use - Teams policies, Security & Compliance (Purview) PowerShell, Partner Center, the classic admin APIs and MFA push notifications - return a "not supported for government tenants" error. The automatic permission push is skipped for government tenants. Pages for those features are not hidden yet.
 {% endhint %}
 
 ## 1. Register the Azure Government app
@@ -15,7 +15,7 @@ This covers signing in and getting Microsoft Graph tokens. Until the remaining g
 1. Sign in to the Azure Government portal (`https://portal.azure.us`) with an account in a GCC High or DoD tenant you control, and open **Microsoft Entra ID > App registrations > New registration**.
 2. Name it (for example `CIPP-Gov`) and choose **Accounts in any organizational directory (Multitenant)**.
 3. Under **Redirect URI**, choose **Web** and enter `https://<your CIPP address>/authredirect`. The Credentials page in CIPP shows the exact value.
-4. Under **API permissions**, add these **delegated** Microsoft Graph permissions: `DelegatedPermissionGrant.ReadWrite.All`, `Directory.ReadWrite.All` and `AppRoleAssignment.ReadWrite.All`. Add any further permissions you want CIPP to use in government tenants; the tenant administrator consents to them when adding the tenant.
+4. Under **API permissions**, add these **delegated** Microsoft Graph permissions: `DelegatedPermissionGrant.ReadWrite.All`, `Directory.ReadWrite.All` and `AppRoleAssignment.ReadWrite.All`. Add any further permissions you want CIPP to use in government tenants (for mailboxes, the **Office 365 Exchange Online** `Exchange.Manage` delegated permission); the tenant administrator consents to them when adding the tenant.
 5. Under **Certificates & secrets**, add the credential CIPP will use (step 2): the certificate CIPP generates, or a client secret. If certificate authentication is turned on for your CIPP instance, only the certificate is used.
 
 ## 2. Enter the app in CIPP
