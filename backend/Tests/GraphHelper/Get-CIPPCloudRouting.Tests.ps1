@@ -211,6 +211,18 @@ Describe 'Get-CIPPTenantRequestCloud' {
         Get-CIPPTenantRequestCloud -TenantFilter 'gov.example' | Should -BeExactly 'USGovHigh'
     }
 
+    It 'resolves a padded tenant id like the tenant and never overwrites its marker with the partner cloud: <Name>' -TestCases @(
+        @{ Name = 'space'; Pad = ' ' }
+        @{ Name = 'tab'; Pad = "`t" }
+        @{ Name = 'no-break space'; Pad = [string][char]0xA0 }
+    ) {
+        param($Name, $Pad)
+        # CIPPTokenCache.BuildKey trims, so the padded id shares the tenant's marker key.
+        Get-CIPPTenantRequestCloud -TenantFilter "$Pad$($script:GovTenant)$Pad" | Should -BeExactly 'USGovHigh'
+        [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0).TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly 'USGovHigh'
+    }
+
     It 'uses the marker Get-GraphToken left, with no table read' {
         [CIPP.CIPPTokenCache]::Store([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 'USGovDoD', [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
         Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly 'USGovDoD'
@@ -426,6 +438,27 @@ Describe 'Request helpers' {
             $script:Calls | Should -Be @("https://$ApiHost/adminapi/beta/$($script:GovTenant)/InvokeCommand")
         }
 
+        It 'keeps a government tenant''s Exchange nextLink on its own cloud (<Name>)' -TestCases @(
+            @{ Name = 'commercial host'; Next = 'https://outlook.office365.com/adminapi/beta/x/InvokeCommand?$skiptoken=2'; Expected = 'https://outlook.office365.us/adminapi/beta/x/InvokeCommand?$skiptoken=2' }
+            @{ Name = 'own host'; Next = 'https://outlook.office365.us/adminapi/beta/x/InvokeCommand?$skiptoken=2'; Expected = 'https://outlook.office365.us/adminapi/beta/x/InvokeCommand?$skiptoken=2' }
+        ) {
+            param($Name, $Next, $Expected)
+            $script:Replies.Enqueue([pscustomobject]@{ value = @([pscustomobject]@{ Name = 'a' }); '@odata.nextLink' = $Next })
+            $script:Replies.Enqueue([pscustomobject]@{ value = @([pscustomobject]@{ Name = 'b' }) })
+            $null = New-ExoRequest -tenantid $script:GovTenant -cmdlet 'Get-Mailbox'
+            $script:Calls | Should -Be @("https://outlook.office365.us/adminapi/beta/$($script:GovTenant)/InvokeCommand", $Expected)
+        }
+
+        It 'refuses an Exchange nextLink that leaves the tenant''s cloud, without calling it (<Name>)' -TestCases @(
+            @{ Name = 'paged'; Stream = $false }
+            @{ Name = 'streamed'; Stream = $true }
+        ) {
+            param($Name, $Stream)
+            $script:Replies.Enqueue([pscustomobject]@{ value = @(); '@odata.nextLink' = 'https://evil.example/adminapi/beta/x/InvokeCommand' })
+            { $null = New-ExoRequest -tenantid $script:GovTenant -cmdlet 'Get-Mailbox' -StreamPages:$Stream } | Should -Throw '*not supported for government tenants*'
+            $script:Calls | Should -Be @("https://outlook.office365.us/adminapi/beta/$($script:GovTenant)/InvokeCommand")
+        }
+
         It 'keeps the commercial Exchange host for a commercial tenant' {
             $null = New-ExoRequest -tenantid $script:ComTenant -cmdlet 'Get-Mailbox'
             $script:Calls | Should -Be @("https://outlook.office365.com/adminapi/beta/$($script:GovTenant)/InvokeCommand")
@@ -453,6 +486,20 @@ Describe 'Request helpers' {
         It 'Get-ClassicAPIToken refuses a government tenant before the commercial token endpoint' {
             { Get-ClassicAPIToken -tenantID $script:GovTenant -Resource 'https://admin.microsoft.com' } | Should -Throw '*not supported for government tenants*'
             Should -Invoke Invoke-CIPPRestMethod -Times 0
+        }
+
+        It 'New-CIPPMFAConnectorToken checks again before sending a secret when this worker''s marker was stale' {
+            # A stale 'Commercial' marker (e.g. a cloud change made in another worker) passes the first check;
+            # Get-GraphToken's table read then refreshes it, as its slow path does.
+            $script:MarkerKey = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker')
+            [CIPP.CIPPTokenCache]::Store($script:MarkerKey, 'Commercial', [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
+            Mock Get-GraphToken { [CIPP.CIPPTokenCache]::Store($script:MarkerKey, 'USGovHigh', [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900); @{ Authorization = 'Bearer test' } }
+            Mock Invoke-RestMethod {}
+            $script:Replies.Enqueue([pscustomobject]@{ value = @([pscustomobject]@{ id = 'sp-1'; passwordCredentials = @() }) })
+            $script:Replies.Enqueue([pscustomobject]@{ secretText = 'new-secret' })
+            { New-CIPPMFAConnectorToken -TenantFilter $script:GovTenant -ForceProvision } | Should -Throw '*not supported for government tenants*'
+            Should -Invoke Invoke-RestMethod -Times 0
+            $script:Calls | Should -Not -Match 'graph\.microsoft\.com'
         }
 
         It 'New-CIPPMFAConnectorToken refuses a government tenant before provisioning or sending a secret' {
