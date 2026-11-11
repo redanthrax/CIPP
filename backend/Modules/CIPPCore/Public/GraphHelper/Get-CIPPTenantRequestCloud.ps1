@@ -26,7 +26,9 @@ function Get-CIPPTenantRequestCloud {
         [string]$TenantFilter
     )
 
-    $TenantId = if ([string]::IsNullOrEmpty($TenantFilter)) { [string]$env:TenantID } else { $TenantFilter }
+    # Trimmed like the cache key (CIPPTokenCache.BuildKey trims), so ' <id>' cannot share a tenant's marker
+    # while missing its Tenants row and overwrite that marker with the partner cloud (redanthrax/CIPP#3).
+    $TenantId = if ([string]::IsNullOrEmpty($TenantFilter)) { [string]$env:TenantID } else { $TenantFilter.Trim() }
     $MarkerKey = $null
     if ($null -ne ('CIPP.CIPPTokenCache' -as [type])) {
         $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey($TenantId, 'cipp-cloud-environment', $false, '', 'marker')
