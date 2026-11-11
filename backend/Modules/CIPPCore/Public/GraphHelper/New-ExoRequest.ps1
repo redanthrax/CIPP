@@ -144,6 +144,8 @@ function New-ExoRequest {
                     do {
                         $Return = Invoke-CIPPRestMethod -Uri $URL -Method POST -Body $ExoBody -Headers $Headers -ContentType 'application/json; charset=utf-8'
                         $URL = $Return.'@odata.nextLink'
+                        # A government tenant's token follows a nextLink only on its own cloud's host (redanthrax/CIPP#3).
+                        if ($URL -and $RequestCloud -cne 'Commercial') { $URL = ConvertTo-CIPPCloudUri -Uri $URL -CloudEnvironment $RequestCloud }
                         [PSCustomObject]@{ Value = $Return.value }
                     } until ($null -eq $URL)
                     return
@@ -159,6 +161,8 @@ function New-ExoRequest {
 
                     $Return = Invoke-CIPPRestMethod @ExoRequestParams -ResponseHeadersVariable ResponseHeaders
                     $URL = $Return.'@odata.nextLink'
+                    # A government tenant's token follows a nextLink only on its own cloud's host (redanthrax/CIPP#3).
+                    if ($URL -and $RequestCloud -cne 'Commercial') { $URL = ConvertTo-CIPPCloudUri -Uri $URL -CloudEnvironment $RequestCloud }
                     $Return
                 } until ($null -eq $URL)
 
