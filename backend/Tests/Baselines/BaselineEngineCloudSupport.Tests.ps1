@@ -1,6 +1,6 @@
 # A baseline standard the tenant's cloud does not support (redanthrax/CIPP#4) is skipped by the engine like a disabled
-# one: no licence lookup, no compare, no write, a Skipped-Cloud row with the reason, and no log line (the orchestrator
-# writes one per tenant per run). A Commercial tenant goes through the engine exactly as before.
+# one: no licence lookup, no compare, no write, a Skipped-Cloud row with the reason, and one log line. A Commercial
+# tenant goes through the engine exactly as before, and the orchestrator does no cloud work at all.
 
 BeforeAll {
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
@@ -51,7 +51,7 @@ Describe 'Engine: cloud support' {
         $Result.Remediated | Should -BeFalse
         Should -Invoke Get-CIPPTenantCapabilities -Times 0 -Exactly
         Should -Invoke Set-CIPPBaselineResult -Times 1 -Exactly -ParameterFilter { $Detail -eq 'Not supported for USGovHigh tenants - skipped.' }
-        Should -Invoke Write-LogMessage -Times 0 -Exactly
+        Should -Invoke Write-LogMessage -Times 1 -Exactly -ParameterFilter { $tenant -eq 'tenant.example' -and $Sev -eq 'Info' -and $message -match 'not supported for USGovHigh tenants' }
     }
 
     It 'returns nothing for a grade-only verification on a government tenant' {
@@ -68,5 +68,15 @@ Describe 'Engine: cloud support' {
         $Result.Outcome | Should -Be 'Skipped-License'
         Should -Invoke Get-CIPPTenantCapabilities -Times 1 -Exactly
         Should -Invoke Get-CIPPCloudFeatureSupport -Times 0 -Exactly
+        Should -Invoke Write-LogMessage -Times 0 -Exactly -ParameterFilter { $message -match 'not supported for' }
+    }
+}
+
+Describe 'Orchestrator: no cloud work for any estate' {
+    It 'Start-CIPPBaselineOrchestrator does not read the tenant list or the support matrix (the engine logs government skips)' {
+        $Source = Get-Content -Raw (Join-Path $script:RepoRoot 'Modules/CIPPCore/Public/Entrypoints/Orchestrator Functions/Start-CIPPBaselineOrchestrator.ps1')
+        $Source | Should -Not -Match 'Get-Tenants'
+        $Source | Should -Not -Match 'CloudFeatureSupport'
+        $Source | Should -Not -Match 'cloudEnvironment'
     }
 }

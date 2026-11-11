@@ -142,27 +142,6 @@ function Start-CIPPBaselineOrchestrator {
     $RunId = [string](New-Guid).Guid
     Set-CippBaselineRunContext -RunId $RunId
 
-    # The engine skips standards a tenant's cloud does not support (redanthrax/CIPP#4) and writes the
-    # reason on each row; the run's one log line per government tenant is written here. Commercial
-    # tenants are never looked up in the support matrix.
-    try {
-        $GovTenants = @{}
-        foreach ($Tenant in @(Get-Tenants -IncludeErrors)) {
-            if ($Tenant.cloudEnvironment -and $Tenant.cloudEnvironment -cne 'Commercial') { $GovTenants[[string]$Tenant.defaultDomainName] = [string]$Tenant.cloudEnvironment }
-        }
-        if ($GovTenants.Count -gt 0) {
-            foreach ($TenantGroup in ($WorkItems | Where-Object { $GovTenants.ContainsKey([string]$_.TenantFilter) } | Group-Object -Property TenantFilter)) {
-                $Cloud = $GovTenants[$TenantGroup.Name]
-                $Unsupported = @($TenantGroup.Group | Where-Object { -not (Test-CIPPCloudFeatureSupport -Type 'baselineStandards' -Name $_.BaseName -CloudEnvironment $Cloud) } | ForEach-Object { $_.BaseName } | Sort-Object -Unique)
-                if ($Unsupported.Count -gt 0) {
-                    Write-LogMessage -API 'Baselines' -tenant $TenantGroup.Name -message "Skipping $($Unsupported.Count) baseline standard(s) not supported for $Cloud tenants: $($Unsupported -join ', ') - Run $RunId" -Sev 'Info'
-                }
-            }
-        }
-    } catch {
-        Write-Information "Baselines: cloud support summary skipped: $($_.Exception.Message)"
-    }
-
     # Licensing is NOT checked here: the engine gates each (tenant, standard) itself,
     # writing the License Missing row (oneoff bypasses the gate). Doing it in the starter
     # meant one sequential capability lookup per tenant inside the HTTP request - on a
