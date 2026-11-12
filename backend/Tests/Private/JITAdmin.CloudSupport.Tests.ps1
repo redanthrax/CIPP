@@ -33,6 +33,7 @@ BeforeAll {
     . (Join-Path $Modules 'CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     . (Join-Path $Modules 'CIPPCore/Public/Functions/Get-CIPPCloudFeatureSupport.ps1')
     . (Join-Path $Modules 'CIPPCore/Public/Get-CIPPJITAdminCloudError.ps1')
+    . (Join-Path $Modules 'CIPPCore/Public/Functions/Test-IsGuid.ps1')
     . (Join-Path $Modules 'CIPPCore/Public/Set-CIPPUserJITAdmin.ps1')
     . (Join-Path $Modules 'CIPPCore/Public/Set-CIPPUserJITAdminProperties.ps1')
     . (Join-Path $Modules 'CIPPAlerts/Public/Alerts/Get-CIPPAlertMFAAdmins.ps1')

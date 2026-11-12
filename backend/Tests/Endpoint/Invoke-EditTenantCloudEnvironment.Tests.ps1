@@ -34,6 +34,11 @@ BeforeAll {
     function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck, $ErrorAction) }
     function Get-AzDataTableEntity { param($Context, $Filter) }
     function Clear-CippTokenCache { param($TenantFilter) }
+    # The rebuild walks every configured partner (MultiPartner off: just the primary one).
+    function Get-CIPPPartnerTenant { param($TenantId) [pscustomobject]@{ RowKey = $env:TenantID; Managed = $true } }
+    function Get-CIPPFeatureFlag { param($Id) [pscustomobject]@{ Id = $Id; Enabled = $false } }
+    function New-GraphBulkRequest { param($Requests, $tenantid, $NoAuthCheck, $Version) }
+    function Start-CIPPOrchestrator { param($InputObject) }
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     function Add-AzDataTableEntity { param($Context, $Entity, [switch]$Force) }
 

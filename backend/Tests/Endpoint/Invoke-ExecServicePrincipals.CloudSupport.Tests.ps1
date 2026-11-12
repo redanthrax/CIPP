@@ -17,6 +17,7 @@ BeforeAll {
     function New-GraphGetRequest { param($Uri, $tenantid, $NoAuthCheck, [switch]$ComplexFilter) }
     function New-GraphPostRequest { param($Uri, $tenantid, $type, $body, $NoAuthCheck) }
     function Get-CIPPTenantRequestCloud { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Functions/Test-IsGuid.ps1')
     function Test-CIPPAccess { param($Request, [switch]$TenantList) }
     function Get-Tenants { param($TenantFilter) }
     function Write-LogMessage { param($headers, $API, $tenant, $message, $Sev, $LogData) }
@@ -71,7 +72,7 @@ Describe 'Invoke-ExecServicePrincipals tenant selection' {
 
     It 'reads a government tenant''s service principals for <Name>' -TestCases @(
         @{ Name = 'the list'; Query = @{ Select = 'appId'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
-        @{ Name = 'one by object id'; Query = @{ Id = 'sp-id'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
+        @{ Name = 'one by object id'; Query = @{ Id = '11111111-2222-3333-4444-555555555555'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
         @{ Name = 'one by appId'; Query = @{ AppId = '00000003-0000-0000-c000-000000000000'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
     ) {
         param($Name, $Query)

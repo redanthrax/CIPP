@@ -24,6 +24,9 @@ BeforeAll {
     function Get-CippKeyVaultSecret { param($VaultName, $Name, [switch]$AsPlainText) }
     function Update-CIPPSAMCertificateEnvCache { param($Name, $PfxBase64) }
     function Get-CIPPGovAppCredential { param([switch]$Force) }
+    # MultiPartner off: every GDAP tenant is owned by the primary partner, whose token is $env:RefreshToken.
+    function Resolve-CIPPOwningPartner { param($TenantFilter) $env:TenantID }
+    function Get-CIPPPartnerRefreshToken { param($PartnerTenantId) }
 
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-GraphToken.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-GraphTokenFromCert.ps1')

@@ -8,8 +8,16 @@ BeforeAll {
     function Get-CIPPAzDataTableEntity { param($Context, $Filter, $Property) }
     function Write-LogMessage { param($API, $tenant, $message, $Sev, $LogData, $headers, $level) }
     function ConvertTo-CIPPODataFilterValue { param($Value, $Type) }
+    # The GDAP refresh enumerates every configured partner, batches the domain lookup and builds rows with
+    # New-CIPPTenantRow (the real one, so the cloudEnvironment it writes is what is tested).
+    function Get-CIPPPartnerTenant { param($TenantId) }
+    function Get-CIPPFeatureFlag { param($Id) }
+    function Clear-CippTokenCache { param($TenantFilter) }
+    function Start-CIPPOrchestrator { param($InputObject) }
+    function New-GraphBulkRequest { param($Requests, $tenantid, $NoAuthCheck, $Version) }
 
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-Tenants.ps1')
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Private/New-CIPPTenantRow.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     $script:OrigPartnerCloud = $env:CIPP_PARTNER_CLOUD
     Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue
@@ -95,8 +103,17 @@ Describe 'Get-Tenants cloudEnvironment across the GDAP refresh' {
         Mock Write-LogMessage {}
         Mock Get-CippException { @{} }
         Mock Get-AzDataTableEntity {}
+        Mock Get-CIPPPartnerTenant { @([PSCustomObject]@{ RowKey = $env:TenantID; Managed = $true }) }
+        Mock Get-CIPPFeatureFlag { [PSCustomObject]@{ Id = $Id; Enabled = $false } }
+        Mock Clear-CippTokenCache {}
+        Mock Start-CIPPOrchestrator {}
         Mock Add-AzDataTableEntity {}
-        Mock Add-CIPPAzDataTableEntity { $script:Written.Add($Entity) }
+        Mock Add-CIPPAzDataTableEntity { foreach ($E in @($Entity)) { $script:Written.Add($E) } }
+        # The batched findTenantInformationByTenantId lookup (as the owning partner) that new or stale rows are built from.
+        Mock New-GraphBulkRequest {
+            if ($script:DomainsFail) { throw 'domain lookup failed' }
+            foreach ($Request in $Requests) { [PSCustomObject]@{ id = $Request.id; status = 200; body = [PSCustomObject]@{ defaultDomainName = 'gov.us' } } }
+        }
         Mock Get-CIPPAzDataTableEntity {
             if ([string]::IsNullOrEmpty($Filter)) { return [PSCustomObject]@{ state = 'gdap' } }
             if ($Filter -like '*Excluded eq true*') { return $null }
@@ -137,7 +154,7 @@ Describe 'Get-Tenants cloudEnvironment across the GDAP refresh' {
         $Result.cloudEnvironment | Should -Be $Value
     }
 
-    It 'keeps the stored value when the domains read falls back' {
+    It 'keeps the stored value when the domain lookup fails and the cached domain is kept' {
         $script:Row = New-StoredRow -CloudEnvironment 'USGovDoD'
         $script:DomainsFail = $true
 
@@ -174,13 +191,14 @@ Describe 'Get-Tenants cloudEnvironment across the GDAP refresh' {
         $Result.cloudEnvironment | Should -Be 'Commercial'
     }
 
-    It 'returns the stored value from the cache-hit branch without rewriting it' {
+    It 'returns the stored value from the cache-hit branch, which only updates metadata' {
         $script:Row = New-StoredRow -CloudEnvironment 'USGovDoD'
         $script:Row.RequiresRefresh = $false
 
         $Result = Get-Tenants -TriggerRefresh
 
-        $script:Written.Count | Should -Be 0
+        Should -Invoke New-GraphBulkRequest -Times 0 -Exactly
+        foreach ($Written in $script:Written) { $Written.cloudEnvironment | Should -Be 'USGovDoD' }
         $Result.cloudEnvironment | Should -Be 'USGovDoD'
     }
 }
@@ -216,15 +234,27 @@ Describe 'Get-Tenants cloudEnvironment on the partner tenant row' {
         Mock Write-LogMessage {}
         Mock Get-CippException { @{} }
         Mock Get-AzDataTableEntity {}
+        Mock Get-CIPPPartnerTenant { @([PSCustomObject]@{ RowKey = $env:TenantID; Managed = $true }) }
+        Mock Get-CIPPFeatureFlag { [PSCustomObject]@{ Id = $Id; Enabled = $false } }
+        Mock Clear-CippTokenCache {}
+        Mock Start-CIPPOrchestrator {}
         Mock Add-AzDataTableEntity { $script:Written.Add($Entity) }
         Mock Add-CIPPAzDataTableEntity { foreach ($E in @($Entity)) { $script:Written.Add($E) } }
         Mock Get-CIPPAzDataTableEntity {
             if ([string]::IsNullOrEmpty($Filter)) { return [PSCustomObject]@{ state = $script:Mode } }
             if ($Filter -like "*RowKey eq '$($env:TenantID)'*") { return $script:PartnerRow }
+            # The refresh prefetches every row once and reads the partner row from that.
+            if ($Filter -eq "PartitionKey eq 'Tenants'") { return @($script:PartnerRow | Where-Object { $_ }) }
             return $null
         }
         Mock New-GraphGetRequest {
             if ($uri -like '*delegatedAdminRelationships*') { return @() }
+            if ($uri -like '*/organization*') {
+                return [PSCustomObject]@{ displayName = 'Partner'; verifiedDomains = @(
+                        [PSCustomObject]@{ name = 'partner.us'; isDefault = $true; isInitial = $false }
+                        [PSCustomObject]@{ name = 'partner.onmicrosoft.us'; isDefault = $false; isInitial = $true }
+                    ) }
+            }
             if ($uri -like '*beta/domains*') {
                 return @(
                     [PSCustomObject]@{ id = 'partner.us'; isDefault = $true; isInitial = $false }
@@ -298,20 +328,35 @@ Describe 'Get-Tenants with a partner cloud setting' {
         Mock Write-LogMessage {}
         Mock Get-CippException { @{} }
         Mock Get-AzDataTableEntity {}
+        Mock Get-CIPPPartnerTenant { @([PSCustomObject]@{ RowKey = $env:TenantID; Managed = $true }) }
+        Mock Get-CIPPFeatureFlag { [PSCustomObject]@{ Id = $Id; Enabled = $false } }
+        Mock Clear-CippTokenCache {}
+        Mock Start-CIPPOrchestrator {}
         Mock Add-AzDataTableEntity { $script:Written.Add($Entity) }
         Mock Add-CIPPAzDataTableEntity { foreach ($E in @($Entity)) { $script:Written.Add($E) } }
         Mock Get-CIPPAzDataTableEntity {
             if ([string]::IsNullOrEmpty($Filter)) { return [PSCustomObject]@{ state = 'PartnerTenantAvailable' } }
             if ($Filter -like '*Excluded eq true*') { return $null }
-            if ($Filter -like "*RowKey eq '$($script:Guid)'*" -and $script:StoredGdapCloud) {
+            # The refresh prefetches every row once and reads the stored GDAP row from that.
+            if ($Filter -eq "PartitionKey eq 'Tenants'" -and $script:StoredGdapCloud) {
                 return [PSCustomObject]@{ RowKey = $script:Guid; customerId = $script:Guid; displayName = 'GDAP'; RequiresRefresh = $true; cloudEnvironment = $script:StoredGdapCloud }
             }
+            if ($Filter -eq "PartitionKey eq 'Tenants'") { return $null }
             if ($Filter -like '*RowKey eq*') { return $null }
             return $script:Rows
+        }
+        Mock New-GraphBulkRequest {
+            foreach ($Request in $Requests) { [PSCustomObject]@{ id = $Request.id; status = 200; body = [PSCustomObject]@{ defaultDomainName = 'x.us' } } }
         }
         Mock New-GraphGetRequest {
             if ($uri -like '*delegatedAdminRelationships*') {
                 return [PSCustomObject]@{ displayName = 'GDAP'; customer = [PSCustomObject]@{ tenantId = $script:Guid; displayName = 'GDAP' }; autoExtendDuration = 'P180D'; endDateTime = (Get-Date).AddYears(1).ToString('o') }
+            }
+            if ($uri -like '*/organization*') {
+                return [PSCustomObject]@{ displayName = 'Partner'; verifiedDomains = @(
+                        [PSCustomObject]@{ name = 'x.us'; isDefault = $true; isInitial = $false }
+                        [PSCustomObject]@{ name = 'x.onmicrosoft.us'; isDefault = $false; isInitial = $true }
+                    ) }
             }
             if ($uri -like '*beta/domains*') {
                 return @(

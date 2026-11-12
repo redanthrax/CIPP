@@ -25,8 +25,11 @@ BeforeAll {
     function Write-LogMessage { param($headers, $API, $message, $sev, $tenant, $tenantid, $LogData) }
     function Send-CIPPScheduledTaskAlert { param($Results, $TaskInfo, $TenantFilter, $TaskType, $Attachments) }
     function Get-CippException { param($Exception) @{ NormalizedError = "$Exception" } }
-    function Get-CIPPAlertDefenderStatus { param($TenantFilter, $InputValue, $Headers) }
-    function Get-CIPPAlertMFAAlertUsers { param($TenantFilter, $InputValue, $Headers) }
+    # The executor only runs functions from the CIPP modules, so the alerts live in a module of that name.
+    $null = New-Module -Name CIPPAlerts -ScriptBlock {
+        function Get-CIPPAlertDefenderStatus { param($TenantFilter, $InputValue, $Headers) }
+        function Get-CIPPAlertMFAAlertUsers { param($TenantFilter, $InputValue, $Headers) }
+    } | Import-Module -Force -PassThru
 
     . $FunctionPath
 
@@ -38,6 +41,10 @@ BeforeAll {
         }
         [pscustomobject]@{ Command = $Command; Parameters = @{ TenantFilter = 'tenant.example' }; TaskInfo = $TaskInfo }
     }
+}
+
+AfterAll {
+    Remove-Module -Name CIPPAlerts -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Push-ExecScheduledCommand cloud support' {
@@ -63,7 +70,6 @@ Describe 'Push-ExecScheduledCommand cloud support' {
         Mock Add-CIPPAlertRunHistory {}
         Mock Get-AzDataTableEntity { [pscustomobject]@{ PartitionKey = 'ScheduledTask'; RowKey = 'task-1'; TaskState = 'Pending' } }
         Mock Get-CIPPAzDataTableEntity {}
-        Mock Get-Command { [pscustomobject]@{ Module = 'CIPPAlerts'; Parameters = @{ TenantFilter = 1; InputValue = 1; Headers = 1 } } }
         Mock Get-CIPPAlertDefenderStatus {}
     }
 

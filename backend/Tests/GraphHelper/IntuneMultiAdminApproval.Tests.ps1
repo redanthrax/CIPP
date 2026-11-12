@@ -9,7 +9,10 @@ BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
 
     function Get-AuthorisedRequest { param($Uri, $TenantID) $true }
-    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate) @{} }
+    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate, $RequireCloud) @{} }
+    # Commercial unless a test says otherwise; a government tenant's URI moves to its cloud's Graph host (redanthrax/CIPP#3).
+    function Get-CIPPTenantRequestCloud { param($TenantFilter) 'Commercial' }
+    function ConvertTo-CIPPCloudUri { param($Uri, $CloudEnvironment) $Uri -replace '^https://graph\.microsoft\.com/', 'https://graph.microsoft.us/' }
     function Get-CIPPTextReplacement { param($TenantFilter, $Text, [switch]$EscapeForJson) $Text }
     function Get-CippUserAgent { param([switch]$SharePoint) 'CIPP/test' }
     function Get-NormalizedError { param($Message) $Message }
