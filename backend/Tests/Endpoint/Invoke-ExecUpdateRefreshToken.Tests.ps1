@@ -251,3 +251,63 @@ Describe 'Invoke-ExecUpdateRefreshToken direct-tenant sign-in' {
         Should -Invoke Start-CIPPOrchestrator -Times 1
     }
 }
+
+# An additional partner tenant (MultiPartner) backs its GDAP tenants, whose tokens are redeemed in the instance's partner
+# cloud. Its refresh token must come from a sign-in to that cloud, or a government token would be sent to the commercial
+# authority, or the reverse (redanthrax/CIPP#3). Checked before anything is stored.
+Describe 'Invoke-ExecUpdateRefreshToken additional partner tenant' {
+    BeforeAll {
+        function Get-CIPPFeatureFlag { param($Id) [pscustomobject]@{ Id = $Id; Enabled = $true } }
+        function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck, $ErrorAction) }
+        $script:SavedTenantId = $env:TenantID
+        $script:SavedStorage = $env:AzureWebJobsStorage
+        $script:SavedNonLocal = $env:NonLocalHostAzurite
+        $script:SavedPartnerCloud = $env:CIPP_PARTNER_CLOUD
+        $env:TenantID = $script:Partner
+        $env:AzureWebJobsStorage = 'DefaultEndpointsProtocol=https;AccountName=x'
+        $env:NonLocalHostAzurite = $null
+        $script:NewPartner = '66666666-6666-6666-6666-666666666666'
+        $script:Aud = @{ Commercial = 'https://graph.microsoft.com'; USGovHigh = 'https://graph.microsoft.us'; USGovDoD = 'https://dod-graph.microsoft.us' }
+        function New-PartnerJwt($Cloud) {
+            $Enc = { param($T) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($T)).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+            '{0}.{1}.sig' -f (& $Enc '{"alg":"RS256"}'), (& $Enc (@{ aud = $script:Aud[$Cloud]; iss = 'https://sts.windows.net/x/'; tid = $script:NewPartner } | ConvertTo-Json -Compress))
+        }
+        function Invoke-AddPartner($Cloud, $TokenCloud) {
+            if (-not $TokenCloud) { $TokenCloud = if ($Cloud) { $Cloud } else { 'Commercial' } }
+            $Body = [pscustomobject]@{ tenantId = $script:NewPartner; refreshtoken = 'partner-token'; accessToken = (New-PartnerJwt $TokenCloud); tenantMode = 'GDAP'; addPartner = $true }
+            if ($Cloud) { $Body | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue $Cloud }
+            $Principal = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ userRoles = @('superadmin') } | ConvertTo-Json -Compress)))
+            Invoke-ExecUpdateRefreshToken -Request ([pscustomobject]@{ Params = @{ CIPPEndpoint = 'ExecUpdateRefreshToken' }; Headers = @{ 'x-ms-client-principal' = $Principal }; Body = $Body })
+        }
+    }
+    AfterAll {
+        $env:TenantID = $script:SavedTenantId
+        $env:AzureWebJobsStorage = $script:SavedStorage
+        $env:NonLocalHostAzurite = $script:SavedNonLocal
+        $env:CIPP_PARTNER_CLOUD = $script:SavedPartnerCloud
+    }
+    BeforeEach {
+        Mock Set-CippKeyVaultSecret { }
+        Mock Write-LogMessage { }
+        Mock Get-CIPPAzDataTableEntity { }
+        $script:TenantAccess = @('AllTenants')
+        $env:CIPP_PARTNER_CLOUD = $null
+    }
+
+    It 'stores a commercial partner sign-in on a commercial instance, as before' {
+        (Invoke-AddPartner).StatusCode | Should -Be 200
+        Should -Invoke Set-CippKeyVaultSecret -Times 1 -Exactly -ParameterFilter { $Name -eq "partner-$($script:NewPartner)" }
+    }
+
+    It 'refuses a <Cloud> sign-in (token <TokenCloud>) on a <PartnerCloud> instance and stores nothing' -TestCases @(
+        @{ PartnerCloud = $null; Cloud = 'USGovHigh'; TokenCloud = 'USGovHigh' }
+        @{ PartnerCloud = $null; Cloud = $null; TokenCloud = 'USGovDoD' }
+        @{ PartnerCloud = 'USGovHigh'; Cloud = $null; TokenCloud = 'Commercial' }
+        @{ PartnerCloud = 'USGovHigh'; Cloud = 'USGovDoD'; TokenCloud = 'USGovDoD' }
+    ) {
+        param($PartnerCloud, $Cloud, $TokenCloud)
+        $env:CIPP_PARTNER_CLOUD = $PartnerCloud
+        (Invoke-AddPartner $Cloud $TokenCloud).StatusCode | Should -Be 500
+        Should -Invoke Set-CippKeyVaultSecret -Times 0 -Exactly
+    }
+}

@@ -99,6 +99,14 @@ function Invoke-ExecUpdateRefreshToken {
             if ($ExistingDirect) {
                 throw "Tenant $($Request.body.tenantId) is already added as a direct tenant. Remove it as a direct tenant before adding it as a partner tenant."
             }
+            # A partner's refresh token is redeemed for its GDAP tenants in the instance's partner cloud, so it must
+            # come from a sign-in to that cloud: a government token would otherwise be sent to the commercial
+            # authority, or the reverse (redanthrax/CIPP#3). Checked before anything is stored.
+            $PartnerCloud = Get-CIPPPartnerCloudEnvironment
+            $SignIn = Resolve-CIPPSignInCloud -CloudEnvironment $Request.Body.cloudEnvironment -AccessToken ([string]$Request.Body.accessToken)
+            if ($SignIn.CloudEnvironment -cne $PartnerCloud) {
+                throw "The sign-in was for $($SignIn.CloudEnvironment), but partner tenants must be in this instance's partner cloud ($PartnerCloud)."
+            }
             $IsAdditionalPartner = $true
         }
 
