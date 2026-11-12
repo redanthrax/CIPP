@@ -10,6 +10,18 @@ function Invoke-ExecServicePrincipals {
     $APIName = $Request.Params.CIPPEndpoint
     $Headers = $Request.Headers
     $TenantFilter = $env:TenantID
+    # Reads normally use the partner tenant. A government tenant's permission ids differ from the partner
+    # cloud's (29 Graph ids in GCC High), so the app registration permissions view asks for that tenant's
+    # service principals instead (redanthrax/CIPP#4). Honoured only for reads, only for a tenant in a
+    # non-Commercial cloud and only when the caller may access it; anything else is the partner tenant, as before.
+    if ($Request.Query.tenantFilter -and $Request.Query.tenantFilter -ne 'AllTenants' -and $Request.Query.Action -ne 'Create') {
+        $RequestedTenant = [string]$Request.Query.tenantFilter
+        $RequestedCloud = try { Get-CIPPTenantRequestCloud -TenantFilter $RequestedTenant } catch { $null }
+        if ($RequestedCloud -and $RequestedCloud -cne 'Commercial') {
+            $AllowedTenants = Test-CIPPAccess -Request $Request -TenantList
+            if ($AllowedTenants -contains 'AllTenants' -or (Get-Tenants -TenantFilter $RequestedTenant)) { $TenantFilter = $RequestedTenant }
+        }
+    }
 
     $Success = $true
     $StatusCode = [HttpStatusCode]::OK
