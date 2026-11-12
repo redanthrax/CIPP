@@ -17,7 +17,7 @@ BeforeAll {
     function Get-CIPPAzDataTableEntity { param($Context, $Filter, $Property) }
     function Get-AuthorisedRequest { param($Uri, $TenantID) $true }
     function Get-AuthorisedRequestError { param($TenantID, $Context) }
-    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate) }
+    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate, [string]$RequireCloud) }
     function Invoke-CIPPRestMethod { param($Uri, $Method, $Headers, $ContentType, $Body, $ResponseHeadersVariable, $StatusCodeVariable, [switch]$SkipHttpErrorCheck, $MaximumRedirection, $TimeoutSec) }
     function Get-CIPPTextReplacement { param($TenantFilter, $Text, [switch]$EscapeForJson) $Text }
     function Get-CippUserAgent { param([switch]$SharePoint) 'CIPP-test' }
@@ -185,8 +185,8 @@ Describe 'Get-CIPPTenantRequestCloud' {
         Mock Get-CippTable { @{} }
         Mock Get-CIPPAzDataTableEntity {
             @(
-                [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.example'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
-                [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.example'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
+                [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.example'; initialDomainName = 'gov.onmicrosoft.us'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
+                [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.example'; initialDomainName = 'com.onmicrosoft.com'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
             )
         }
     }
@@ -209,6 +209,20 @@ Describe 'Get-CIPPTenantRequestCloud' {
 
     It 'finds a direct tenant by its default domain' {
         Get-CIPPTenantRequestCloud -TenantFilter 'gov.example' | Should -BeExactly 'USGovHigh'
+    }
+
+    It 'finds a government direct tenant by its initial domain (redanthrax/CIPP#2, #3)' {
+        Get-CIPPTenantRequestCloud -TenantFilter 'gov.onmicrosoft.us' | Should -BeExactly 'USGovHigh'
+    }
+
+    It 'does not match a commercial direct tenant by its initial domain: the partner cloud, as before' {
+        Get-CIPPTenantRequestCloud -TenantFilter 'com.onmicrosoft.com' | Should -BeExactly 'Commercial'
+        $null = [CIPP.CIPPTokenCache]::Clear()
+        $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+        try {
+            # Only visible when the partner cloud differs: the commercial row's initial domain is not used.
+            Get-CIPPTenantRequestCloud -TenantFilter 'com.onmicrosoft.com' | Should -BeExactly 'USGovHigh'
+        } finally { Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue }
     }
 
     It 'resolves a padded tenant id like the tenant and never overwrites its marker with the partner cloud: <Name>' -TestCases @(

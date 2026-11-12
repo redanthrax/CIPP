@@ -62,8 +62,8 @@ Describe 'Get-GraphToken cloud routing' {
         Mock Get-CIPPAzDataTableEntity {
             if ($Filter -like '*directTenant*') {
                 return @(
-                    [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.us'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
-                    [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.com'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
+                    [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.us'; initialDomainName = 'gov.onmicrosoft.us'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
+                    [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.com'; initialDomainName = 'com.onmicrosoft.com'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
                 )
             }
             return $null
@@ -92,6 +92,30 @@ Describe 'Get-GraphToken cloud routing' {
                 $Body.scope -eq 'https://graph.microsoft.com/.default' -and $Body.refresh_token -eq 'com-tenant-refresh-token'
             }
             Should -Invoke Get-CIPPGovAppCredential -Times 0
+        }
+
+        It 'keeps a commercial direct tenant addressed by its initial domain on the pre-#2 path (partner token, as before)' {
+            $null = Get-GraphToken -tenantid 'com.onmicrosoft.com'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://login.microsoftonline.com/com.onmicrosoft.com/oauth2/v2.0/token' -and
+                $Body.client_id -eq 'sam-app-id' -and $Body.refresh_token -eq 'partner-refresh-token' -and
+                $Body.scope -eq 'https://graph.microsoft.com/.default'
+            }
+            Should -Invoke Get-CIPPGovAppCredential -Times 0
+        }
+
+        It 'resolves a government direct tenant addressed by its initial domain to its own cloud and token (redanthrax/CIPP#2, #3)' {
+            $Result = Get-GraphToken -tenantid 'gov.onmicrosoft.us'
+
+            $Result.Authorization | Should -Be "Bearer token-for-$($script:GovAppId)"
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://login.microsoftonline.us/gov.onmicrosoft.us/oauth2/v2.0/token' -and
+                $Body.client_id -eq $script:GovAppId -and $Body.refresh_token -eq 'gov-tenant-refresh-token' -and
+                $Body.scope -eq 'https://graph.microsoft.us/.default'
+            }
+            # The marker it leaves is the one Get-CIPPTenantRequestCloud reads, so the API host agrees.
+            $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey('gov.onmicrosoft.us', 'cipp-cloud-environment', $false, '', 'marker')
+            [CIPP.CIPPTokenCache]::Lookup($MarkerKey, 0).TokenPayloadJson | Should -BeExactly 'USGovHigh'
         }
 
         It 'keeps GDAP and partner tokens on the pre-#2 path, scope untouched' {
@@ -260,6 +284,58 @@ Describe 'Get-GraphToken cloud routing' {
             Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
             $Marker = [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'), 0)
             $Marker.TokenPayloadJson | Should -BeExactly 'USGovHigh'
+        }
+
+        It 'drops a commercial token another worker cached once a request sees the tenant is now government (redanthrax/CIPP#3)' {
+            # Worker B: the tenant was Commercial and B cached a commercial token. Its cloud is changed to
+            # USGovHigh in another worker, so B's cache is not cleared. When B's request helpers next read the
+            # table (marker expired), the commercial token must go, so the next token is the government one.
+            . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPTenantRequestCloud.ps1')
+            $script:GovCloud = 'Commercial'
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Uri -like 'https://login.microsoftonline.com/*' }
+            $script:GovCloud = 'USGovHigh'
+            [CIPP.CIPPTokenCache]::Remove([CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker'))
+
+            Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly 'USGovHigh'
+            $Result = Get-GraphToken -tenantid $script:GovTenant
+
+            $Result.Authorization | Should -Be "Bearer token-for-$($script:GovAppId)"
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter { $Uri -like 'https://login.microsoftonline.us/*' -and $Body.scope -eq 'https://graph.microsoft.us/.default' }
+        }
+
+        It 'drops a commercial token cached for another scope when a token request finds the tenant is now government' {
+            $script:GovCloud = 'Commercial'
+            $null = Get-GraphToken -tenantid $script:GovTenant                    # delegated commercial token cached
+            $script:GovCloud = 'USGovHigh'
+            $null = Get-GraphToken -tenantid $script:GovTenant -AsApp $true       # another key: reads the table, finds USGovHigh
+
+            $Result = Get-GraphToken -tenantid $script:GovTenant                  # must not be the cached commercial one
+            $Result.Authorization | Should -Be "Bearer token-for-$($script:GovAppId)"
+            Should -Invoke Invoke-CIPPRestMethod -Times 3 -Exactly
+            Should -Invoke Invoke-CIPPRestMethod -Times 2 -Exactly -ParameterFilter { $Uri -like 'https://login.microsoftonline.us/*' }
+        }
+
+        It 'drops a government tenant''s cached tokens only the first time it is seen in its cloud' {
+            . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPTenantRequestCloud.ps1')
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey($script:GovTenant, 'cipp-cloud-environment', $false, '', 'marker')
+            # Marker expiry, then a token call and a request-cloud read: the government token stays cached.
+            [CIPP.CIPPTokenCache]::Remove($MarkerKey)
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            [CIPP.CIPPTokenCache]::Remove($MarkerKey)
+            Get-CIPPTenantRequestCloud -TenantFilter $script:GovTenant | Should -BeExactly 'USGovHigh'
+            $null = Get-GraphToken -tenantid $script:GovTenant
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+        }
+
+        It 'leaves a commercial tenant''s cached token alone when the request cloud is read from the table' {
+            . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPTenantRequestCloud.ps1')
+            $null = Get-GraphToken -tenantid $script:ComTenant
+            Get-CIPPTenantRequestCloud -TenantFilter $script:ComTenant | Should -BeExactly 'Commercial'
+            $null = Get-GraphToken -tenantid $script:ComTenant
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly
+            [CIPP.CIPPTokenCache]::Lookup([CIPP.CIPPTokenCache]::BuildKey($script:ComTenant, 'cipp-cloud-environment', $false, '', 'seen'), 0).Found | Should -BeFalse
         }
 
         It 'refreshes a stale cloud marker on a -SkipCache request, so the request host follows the token (<From> -> <To>)' -TestCases @(

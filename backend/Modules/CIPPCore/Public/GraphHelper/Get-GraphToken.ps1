@@ -13,7 +13,8 @@ function Get-GraphToken {
         $refreshToken,
         $ReturnRefresh,
         $SkipCache,
-        [switch]$UseCertificate
+        [switch]$UseCertificate,
+        [string]$RequireCloud
     )
     if (!$scope) { $scope = 'https://graph.microsoft.com/.default' }
     if (!$tenantid) { $tenantid = $env:TenantID }
@@ -29,6 +30,12 @@ function Get-GraphToken {
     }
     # CIPP's own tokens (no explicit app credentials) follow the tenant's cloud; explicit callers do not.
     $SamApp = -not $AppID -and -not $AppSecret
+    # -RequireCloud is passed only by the request helpers, only once they have chosen a government cloud's
+    # hosts for the request (redanthrax/CIPP#3). It skips the commercial cache key, which can still hold a
+    # token minted before the tenant's cloud changed in another worker, and returns only a token minted
+    # for that cloud. Commercial callers never pass it and take exactly the path below as before.
+    $RequireGovCloud = -not [string]::IsNullOrEmpty($RequireCloud) -and $RequireCloud -cne 'Commercial'
+    if ($RequireGovCloud -and -not $SamApp) { throw 'A government cloud token can only be requested with CIPP''s own app credentials.' }
 
     $UseSharedTokenCache = ($SkipCache -ne $true) -and ($null -ne ('CIPP.CIPPTokenCache' -as [type]))
 
@@ -38,18 +45,20 @@ function Get-GraphToken {
         $GrantType = if ($asApp -eq $true -or ($null -ne $AppID -and $null -ne $AppSecret)) { 'client_credentials' } else { 'refresh_token' }
         if ($UseCertificate -eq $true) { $GrantType = "${GrantType}_certificate" }
         $SharedTokenCacheKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, [string]$scope, [bool]$asApp, $CacheClientId, $GrantType)
-        $SharedCacheEntry = [CIPP.CIPPTokenCache]::Lookup($SharedTokenCacheKey, 120)
-        if ($SharedCacheEntry.Found -and -not [string]::IsNullOrWhiteSpace($SharedCacheEntry.TokenPayloadJson)) {
-            try {
-                $AccessToken = $SharedCacheEntry.TokenPayloadJson | ConvertFrom-Json -ErrorAction Stop
-                if ($ReturnRefresh) { return $AccessToken }
-                return @{ Authorization = "Bearer $($AccessToken.access_token)" }
-            } catch {
-                [CIPP.CIPPTokenCache]::Remove($SharedTokenCacheKey)
+        if (-not $RequireGovCloud) {
+            $SharedCacheEntry = [CIPP.CIPPTokenCache]::Lookup($SharedTokenCacheKey, 120)
+            if ($SharedCacheEntry.Found -and -not [string]::IsNullOrWhiteSpace($SharedCacheEntry.TokenPayloadJson)) {
+                try {
+                    $AccessToken = $SharedCacheEntry.TokenPayloadJson | ConvertFrom-Json -ErrorAction Stop
+                    if ($ReturnRefresh) { return $AccessToken }
+                    return @{ Authorization = "Bearer $($AccessToken.access_token)" }
+                } catch {
+                    [CIPP.CIPPTokenCache]::Remove($SharedTokenCacheKey)
+                }
             }
+            $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$SharedTokenCacheKey|failed", 0)
+            if ($CachedFailure.Found) { throw "Could not get token: $($CachedFailure.TokenPayloadJson)" }
         }
-        $CachedFailure = [CIPP.CIPPTokenCache]::Lookup("$SharedTokenCacheKey|failed", 0)
-        if ($CachedFailure.Found) { throw "Could not get token: $($CachedFailure.TokenPayloadJson)" }
 
         # Government tenants (redanthrax/CIPP#2) are cached under their own cloud's key, never the
         # commercial one above. The slow path leaves a marker with the tenant's cloud so later calls
@@ -57,7 +66,7 @@ function Get-GraphToken {
         if ($SamApp) {
             $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker')
             $CloudMarker = [CIPP.CIPPTokenCache]::Lookup($CloudMarkerKey, 0)
-            if ($CloudMarker.Found -and $CloudMarker.TokenPayloadJson -cne 'Commercial') {
+            if ($CloudMarker.Found -and $CloudMarker.TokenPayloadJson -cne 'Commercial' -and (-not $RequireGovCloud -or $CloudMarker.TokenPayloadJson -ceq $RequireCloud)) {
                 $FastRoute = Get-CIPPCloudTokenRoute -CloudEnvironment $CloudMarker.TokenPayloadJson -Scope $scope -CachedOnly
                 if ($FastRoute) {
                     $FastGrantType = if ($asApp -eq $true) { 'client_credentials' } else { 'refresh_token' }
@@ -88,7 +97,7 @@ function Get-GraphToken {
         # The key is rebuilt below once credentials and the tenant's cloud are known; release this one.
         $LockKey = $SharedTokenCacheKey
         $LockAcquired = [CIPP.CIPPTokenCache]::AcquireLock($LockKey, 30000)
-        if ($LockAcquired) {
+        if ($LockAcquired -and -not $RequireGovCloud) {
             # Double-check: another thread may have stored the token while we waited
             $SharedCacheEntry = [CIPP.CIPPTokenCache]::Lookup($SharedTokenCacheKey, 120)
             if ($SharedCacheEntry.Found -and -not [string]::IsNullOrWhiteSpace($SharedCacheEntry.TokenPayloadJson)) {
@@ -138,7 +147,12 @@ function Get-GraphToken {
         #get directtenants directly from table, avoid get-tenants due to performance issues
         $TenantsTable = Get-CippTable -tablename 'Tenants'
         $Filter = "PartitionKey eq 'Tenants' and delegatedPrivilegeStatus eq 'directTenant'"
-        $ClientType = Get-CIPPAzDataTableEntity @TenantsTable -Filter $Filter | Where-Object { $_.customerId -eq $tenantid -or $_.defaultDomainName -eq $tenantid }
+        $DirectTenantRows = Get-CIPPAzDataTableEntity @TenantsTable -Filter $Filter
+        $ClientType = $DirectTenantRows | Where-Object { $_.customerId -eq $tenantid -or $_.defaultDomainName -eq $tenantid }
+        # A government direct tenant may also be addressed by its initialDomainName (e.g. contoso.onmicrosoft.us).
+        # Only when nothing else matched, and only for a non-Commercial row, so commercial lookups are unchanged.
+        # Same rule as Get-CIPPTenantRequestCloud, so the token and the API host agree (redanthrax/CIPP#2, #3).
+        if (-not $ClientType) { $ClientType = $DirectTenantRows | Where-Object { $_.initialDomainName -and $_.initialDomainName -eq $tenantid -and $_.cloudEnvironment -and $_.cloudEnvironment -cne 'Commercial' } }
         if ($tenantid -ne $env:TenantID -and $clientType.delegatedPrivilegeStatus -eq 'directTenant') {
             Write-Host "Using direct tenant refresh token for $($clientType.customerId)"
             $ClientRefreshToken = Get-Item -Path "env:\$($clientType.customerId)" -ErrorAction SilentlyContinue
@@ -235,11 +249,25 @@ function Get-GraphToken {
             # and pair this token with another cloud's host (redanthrax/CIPP#3).
             if ($null -ne ('CIPP.CIPPTokenCache' -as [type])) {
                 if (-not $CloudMarkerKey) { $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker') }
+                # The cloud this worker last routed the tenant to. The cache is per worker, so after the tenant's
+                # cloud changes in another worker this one can still hold tokens from the old cloud, and the
+                # commercial key above is checked first. The first time a tenant is seen in a cloud, drop its
+                # cached tokens so none can be paired with the new cloud's hosts (redanthrax/CIPP#3).
+                $CloudSeenKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'seen')
                 if ($CloudRoute) {
+                    $CloudSeen = [CIPP.CIPPTokenCache]::Lookup($CloudSeenKey, 0)
+                    if (-not ($CloudSeen.Found -and $CloudSeen.TokenPayloadJson -ceq $CloudRoute.CloudEnvironment)) { $null = [CIPP.CIPPTokenCache]::RemoveByTenant([string]$tenantid) }
+                    [CIPP.CIPPTokenCache]::Store($CloudSeenKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 86400)
                     [CIPP.CIPPTokenCache]::Store($CloudMarkerKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
                 } else {
                     [CIPP.CIPPTokenCache]::Remove($CloudMarkerKey)
+                    [CIPP.CIPPTokenCache]::Remove($CloudSeenKey)
                 }
+            }
+            # The request helper chose its hosts from a cloud the Tenants table no longer gives (the cloud
+            # changed in another worker). The marker is now current; refuse rather than mint for another cloud.
+            if ($RequireGovCloud -and (-not $CloudRoute -or $CloudRoute.CloudEnvironment -cne $RequireCloud)) {
+                throw 'The tenant''s cloud environment changed while the request was prepared; nothing was sent. Try again.'
             }
         } elseif ($AuthBody.grant_type -eq 'refresh_token') {
             # An explicit -AppID without -AppSecret redeems a stored refresh token (a direct tenant's or the

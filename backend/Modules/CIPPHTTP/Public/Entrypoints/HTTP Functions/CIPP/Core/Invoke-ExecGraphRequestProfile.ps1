@@ -131,6 +131,9 @@ function Invoke-ExecGraphRequestProfile {
     # cloud's Graph host, never to graph.microsoft.com (redanthrax/CIPP#3).
     $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $TenantFilter
     if ($RequestCloud -cne 'Commercial') { $GraphUrl = ConvertTo-CIPPCloudUri -Uri $GraphUrl -CloudEnvironment $RequestCloud }
+    # Fetched again for exactly that cloud, as the request helpers do: the first call can return a commercial
+    # token cached before the tenant's cloud changed in another worker.
+    if ($RequestCloud -cne 'Commercial') { $headers = Get-GraphToken -tenantid $TenantFilter -scope $scope -RequireCloud $RequestCloud }
 
     # ── 7. Raw Invoke-RestMethod (baseline — no wrapper overhead) ──────
     $sw.Restart()

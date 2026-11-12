@@ -48,8 +48,14 @@ function New-ExoRequest {
         $token = Get-GraphToken -Tenantid $tenantid -scope "$Resource/.default" -AsApp:$AsApp.IsPresent -UseCertificate:$UseCertificate
         # A government tenant's Exchange host (redanthrax/CIPP#3). Security & Compliance has no supported
         # government host: its token request above already refuses it for a government tenant.
+        $TokenResource = $Resource
         $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
         if ($RequestCloud -cne 'Commercial') { $Resource = ConvertTo-CIPPCloudUri -Uri $Resource -CloudEnvironment $RequestCloud }
+        # A government tenant's token is fetched again for exactly the cloud chosen above: the first call can
+        # return a commercial token cached before the tenant's cloud changed in another worker (redanthrax/CIPP#3).
+        if ($RequestCloud -cne 'Commercial') {
+            $token = Get-GraphToken -Tenantid $tenantid -scope "$TokenResource/.default" -AsApp:$AsApp.IsPresent -UseCertificate:$UseCertificate -RequireCloud $RequestCloud
+        }
 
         if ($cmdParams) {
             #if cmdParams is a pscustomobject, convert to hashtable, otherwise leave as is

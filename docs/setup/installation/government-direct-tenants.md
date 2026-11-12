@@ -82,4 +82,8 @@ If the Azure Government app is not configured, government tenants fail with "Azu
 
 GDAP does not work across clouds, so your partner tenant, every GDAP tenant and CIPP-SAM are always in the same cloud. CIPP assumes that is the commercial cloud. If your partner tenant is in GCC High or DoD, set the Function App application setting `CIPP_PARTNER_CLOUD` to `USGovHigh` or `USGovDoD` (exact case) and restart the app. Leave it unset, or set it to `Commercial`, otherwise. Any other value stops CIPP from requesting tokens until it is corrected.
 
-Tenants that already have a cloud stored keep it. To change one, use **Set Cloud Environment** on the tenants page (Tenant Administration > Tenants).
+Tenants that already have a cloud stored keep it. To change one, use **Set Cloud Environment** on the tenants page (Tenant Administration > Tenants). A direct tenant added in GCC High or DoD cannot be set to Commercial this way: its stored sign-in was issued by the government cloud and only works there. Remove the tenant and add it again as Commercial instead. Moving a direct tenant between GCC High and DoD is allowed.
+
+## Portal links
+
+For a GCC High or DoD tenant, CIPP's links to Microsoft admin portals open the government portals: Azure (`portal.azure.us`), Entra (`entra.microsoft.us`), Intune (`intune.microsoft.us`), Defender (`security.microsoft.us`, or `security.apps.mil` for DoD) and Power Platform. Links to portals with no documented government address, such as the Microsoft 365, Exchange and Teams admin centers, Purview and Power BI, are not shown for these tenants. Sign in to those portals directly with an account from the government tenant.
