@@ -47,20 +47,32 @@ Describe 'Invoke-ExecServicePrincipals tenant selection' {
         Should -Invoke Test-CIPPAccess -Times 0 -Exactly
     }
 
-    It 'ignores a <Name> tenantFilter: the partner tenant, as before' -TestCases @(
+    It 'ignores the usual tenantFilter, with no cloud or access lookup: <Name>' -TestCases @(
         @{ Name = 'Commercial'; Tenant = 'contoso.onmicrosoft.com' }
         @{ Name = 'AllTenants'; Tenant = 'AllTenants' }
+        @{ Name = 'government (e.g. a tenant-scoped autocomplete)'; Tenant = 'gov.onmicrosoft.us' }
     ) {
         param($Name, $Tenant)
         $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; tenantFilter = $Tenant })
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq $script:Partner }
+        Should -Invoke Get-CIPPTenantRequestCloud -Times 0 -Exactly
+        Should -Invoke Test-CIPPAccess -Times 0 -Exactly
+    }
+
+    It 'answers a Commercial or AllTenants GovernmentTenantFilter from the partner tenant: <Tenant>' -TestCases @(
+        @{ Tenant = 'contoso.onmicrosoft.com' }
+        @{ Tenant = 'AllTenants' }
+    ) {
+        param($Tenant)
+        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; GovernmentTenantFilter = $Tenant })
         Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq $script:Partner }
         Should -Invoke Test-CIPPAccess -Times 0 -Exactly
     }
 
     It 'reads a government tenant''s service principals for <Name>' -TestCases @(
-        @{ Name = 'the list'; Query = @{ Select = 'appId'; tenantFilter = 'gov.onmicrosoft.us' } }
-        @{ Name = 'one by object id'; Query = @{ Id = 'sp-id'; tenantFilter = 'gov.onmicrosoft.us' } }
-        @{ Name = 'one by appId'; Query = @{ AppId = '00000003-0000-0000-c000-000000000000'; tenantFilter = 'gov.onmicrosoft.us' } }
+        @{ Name = 'the list'; Query = @{ Select = 'appId'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
+        @{ Name = 'one by object id'; Query = @{ Id = 'sp-id'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
+        @{ Name = 'one by appId'; Query = @{ AppId = '00000003-0000-0000-c000-000000000000'; GovernmentTenantFilter = 'gov.onmicrosoft.us' } }
     ) {
         param($Name, $Query)
         $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest $Query)
@@ -70,24 +82,24 @@ Describe 'Invoke-ExecServicePrincipals tenant selection' {
     It 'reads a government tenant for a restricted caller who may access it' {
         Mock Test-CIPPAccess { @('gov-id') }
         Mock Get-Tenants { [pscustomobject]@{ defaultDomainName = 'gov.onmicrosoft.us' } }
-        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; tenantFilter = 'gov.onmicrosoft.us' })
+        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; GovernmentTenantFilter = 'gov.onmicrosoft.us' })
         Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq 'gov.onmicrosoft.us' }
     }
 
     It 'falls back to the partner tenant for a caller who may not access the government tenant' {
         Mock Test-CIPPAccess { @('other-id') }
-        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; tenantFilter = 'gov.onmicrosoft.us' })
+        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; GovernmentTenantFilter = 'gov.onmicrosoft.us' })
         Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq $script:Partner }
     }
 
     It 'falls back to the partner tenant when the cloud lookup fails' {
         Mock Get-CIPPTenantRequestCloud { throw 'Unknown cloud environment' }
-        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; tenantFilter = 'gov.onmicrosoft.us' })
+        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Select = 'appId'; GovernmentTenantFilter = 'gov.onmicrosoft.us' })
         Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq $script:Partner }
     }
 
     It 'always creates service principals in the partner tenant' {
-        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Action = 'Create'; AppId = '00000003-0000-0000-c000-000000000000'; tenantFilter = 'gov.onmicrosoft.us' })
+        $null = Invoke-ExecServicePrincipals -Request (script:New-SPRequest @{ Action = 'Create'; AppId = '00000003-0000-0000-c000-000000000000'; GovernmentTenantFilter = 'gov.onmicrosoft.us' })
         Should -Invoke New-GraphPostRequest -Times 1 -Exactly -ParameterFilter { $tenantid -eq $script:Partner }
         Should -Invoke Get-CIPPTenantRequestCloud -Times 0 -Exactly
     }

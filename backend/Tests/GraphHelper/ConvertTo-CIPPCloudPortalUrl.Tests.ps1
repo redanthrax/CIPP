@@ -34,10 +34,11 @@ Describe 'ConvertTo-CIPPCloudPortalUrl' {
     }
 
     It 'maps documented portals for <Cloud>' -TestCases @(
-        @{ Cloud = 'USGovHigh'; Security = 'https://security.microsoft.us/?tid=c1' }
-        @{ Cloud = 'USGovDoD'; Security = 'https://security.apps.mil/?tid=c1' }
+        @{ Cloud = 'USGovHigh'; Security = 'https://security.microsoft.us/?tid=c1'; Purview = 'https://purview.microsoft.us/?tid=c1' }
+        @{ Cloud = 'USGovDoD'; Security = 'https://security.apps.mil/?tid=c1'; Purview = 'https://purview.apps.mil/?tid=c1' }
     ) {
-        param($Cloud, $Security)
+        param($Cloud, $Security, $Purview)
+        ConvertTo-CIPPCloudPortalUrl -Url 'https://purview.microsoft.com/?tid=c1' -CloudEnvironment $Cloud | Should -BeExactly $Purview
         ConvertTo-CIPPCloudPortalUrl -Url 'https://entra.microsoft.com/contoso.com/#view/X' -CloudEnvironment $Cloud | Should -BeExactly 'https://entra.microsoft.us/contoso.com/#view/X'
         ConvertTo-CIPPCloudPortalUrl -Url 'https://portal.azure.com/contoso.com' -CloudEnvironment $Cloud | Should -BeExactly 'https://portal.azure.us/contoso.com'
         ConvertTo-CIPPCloudPortalUrl -Url 'https://aad.portal.azure.com/contoso.com/#blade/X' -CloudEnvironment $Cloud | Should -BeExactly 'https://portal.azure.us/contoso.com/#blade/X'
@@ -47,7 +48,7 @@ Describe 'ConvertTo-CIPPCloudPortalUrl' {
 
     It 'returns $null for portals without a documented government URL' {
         foreach ($Url in 'https://admin.cloud.microsoft?delegatedOrg=x', 'https://admin.microsoft.com/Partner/BeginClientSession.aspx?CTID=c1', 'https://portal.office.com/Partner/BeginClientSession.aspx?CTID=c1',
-            'https://admin.teams.microsoft.com?delegatedOrg=x', 'https://purview.microsoft.com/?tid=c1', 'https://app.powerbi.com/admin-portal?ctid=c1') {
+            'https://admin.teams.microsoft.com?delegatedOrg=x', 'https://compliance.microsoft.com/', 'https://app.powerbi.com/admin-portal?ctid=c1') {
             ConvertTo-CIPPCloudPortalUrl -Url $Url -CloudEnvironment 'USGovHigh' | Should -BeNullOrEmpty -Because $Url
         }
     }
