@@ -60,6 +60,23 @@ export const getUnsupportedPage = (pathname, cloud) => {
   return undefined
 }
 
+// The page a nav item opens instead when its own page is not supported in `cloud` (the entry's
+// `navFallback`), e.g. JIT Admin opens its Requests tab for a government tenant. Undefined for
+// Commercial, AllTenants, an unknown cloud, a page without a fallback or an unsupported fallback.
+export const getCloudNavFallback = (path, cloud) => {
+  if (!path || !cloud || cloud === 'Commercial') return undefined
+  const fallback = index.pages.get(path)?.navFallback
+  return fallback && !getUnsupportedPage(fallback, cloud) ? fallback : undefined
+}
+
+// Tabs whose page is not supported in `cloud` are left out. Returns the same array when nothing is
+// removed, so Commercial and AllTenants callers see no change at all.
+export const filterCloudSupportedTabs = (tabs, cloud) => {
+  if (!Array.isArray(tabs) || !cloud || cloud === 'Commercial') return tabs
+  const filtered = tabs.filter((tab) => !getUnsupportedPage(tab?.path, cloud))
+  return filtered.length === tabs.length ? tabs : filtered
+}
+
 // Copies the matrix's page entries onto nav items as `unsupportedClouds`, which filterMenuItems
 // reads. Items the matrix does not list are returned as they are (same object).
 export const withCloudSupport = (items) =>

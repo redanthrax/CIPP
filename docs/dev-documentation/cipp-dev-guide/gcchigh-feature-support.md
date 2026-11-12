@@ -12,7 +12,7 @@ Each section lists features by key, with the clouds they are unsupported in and 
 
 | Section | Key | Used by |
 | --- | --- | --- |
-| `pages` | page path (also covers the pages under it, unless the entry has `"exact": true`) | Navigation, direct URL block |
+| `pages` | page path (also covers the pages under it, unless the entry has `"exact": true`; `navFallback` names a supported page the nav item opens instead) | Navigation, tabs, direct URL block |
 | `actions` | API URL of a row/header action | `CippDataTable`, `HeaderedTabbedLayout` |
 | `standards` | classic standard name | `Push-CIPPStandardsList`, `Push-CIPPStandard`, standards picker |
 | `baselineStandards` | baseline definition name | `Invoke-CIPPBaselineStandard`, baseline picker |
@@ -34,7 +34,7 @@ Each section lists features by key, with the clouds they are unsupported in and 
 | `m365-licensing`, `mde-connector`, `mfa-connector`, `reports-office`, `audit-log-query`, `managed-tenants` | Graph/Office reports | Self-service licences, Defender compliance policy, MFA push action, Copilot readiness cache, audit log planner, Defender alerts |
 | `copilot-usage-reports` | Copilot adoption, trend, usage | CopilotReady015-017, Copilot usage cache types |
 | `copilot-admin` | Copilot Settings, Agent 365 Packages | CopilotSettings and CopilotLimitedMode standards and baselines, CopilotAdminSettings and CopilotPolicySettings cache types |
-| `cipp-schema-extension` | JIT Admins (exact: the template, role template, request and add pages stay) | JIT Admin endpoints, see below |
+| `cipp-schema-extension` | JIT Admins (exact: the template, role template, request and add pages stay; the JIT Admin nav item opens Requests and the JIT Admins tab is hidden) | JIT Admin endpoints, see below |
 
 `copilot-admin`: on 2026-11-11 `beta/copilot/admin/settings` (all five settings on the Copilot Settings page) and `beta/copilot/admin/catalog/packages` returned 400 "Resource not found for the segment 'admin'" from `graph.microsoft.us` for a GCC High tenant. DoD is listed with it because Microsoft 365 Copilot is not offered there either.
 
@@ -45,7 +45,8 @@ Microsoft 365 usage reports are not gated. On 2026-11-11, with `Reports.Read.All
 ## Frontend
 
 * **Selected tenant's cloud.** `useTenantCloudEnvironment()` reads `cloudEnvironment` from the tenant list the tenant selector already cached (query key `TenantSelector`). It reads the query cache directly (`useSyncExternalStore` on the cache's subscribe) and registers no query observer, so it does not fetch anything, never attaches an observer without a `queryFn` to the selector's query and re-renders only when that list changes. Until that list is cached, the cloud is unknown and nothing is gated.
-* **Navigation.** `config.jsx` passes the menu through `withCloudSupport`, which adds `unsupportedClouds` to the pages the matrix lists. `filterMenuItems` hides a page when `unsupportedClouds` includes the `cloudEnvironment` option. You can also set `unsupportedClouds` on a nav item by hand.
+* **Navigation.** `config.jsx` passes the menu through `withCloudSupport`, which adds `unsupportedClouds` to the pages the matrix lists. `filterMenuItems` hides a page when `unsupportedClouds` includes the `cloudEnvironment` option. You can also set `unsupportedClouds` on a nav item by hand. When the page's entry has a `navFallback`, the item stays and links there instead (JIT Admin opens its Requests tab for a government tenant).
+* **Tabs.** `TabbedLayout` leaves out a tab whose page the matrix lists for the selected tenant's cloud (the JIT Admins tab); Commercial and AllTenants get the same tab list.
 * **Direct URL.** `Layout` shows "Not available for GCC High tenants" with the matrix reason instead of rendering the page. The page's own API calls never run.
 * **Actions.** `CippDataTable` and `HeaderedTabbedLayout` drop actions whose `url` is listed.
 * **Standards and baselines pickers.** A listed standard keeps its place in the picker and shows a "Not supported in GCC High" chip with a tooltip. Templates apply to many tenants, so the standard is still applied to commercial tenants. The chip only appears when the tenant list contains a tenant in that cloud.

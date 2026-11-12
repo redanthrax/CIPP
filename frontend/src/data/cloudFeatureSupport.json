@@ -138,6 +138,7 @@
     {
       "path": "/identity/administration/jit-admin",
       "exact": true,
+      "navFallback": "/identity/administration/jit-admin/requests",
       "unsupportedClouds": [
         "USGovHigh",
         "USGovDoD"

@@ -1,4 +1,5 @@
 import { matchPattern } from './permission-rules'
+import { getCloudNavFallback } from './cloud-feature-support'
 
 /**
  * Page paths the feature flags hide. A DISABLED flag hides its Pages (features gated behind
@@ -30,7 +31,8 @@ export const getHiddenPages = (featureFlags) => {
  * Pages (items without `items`) are visible only if:
  * - They declare a non-empty `permissions` array
  * - They are not in the `hiddenPages` list
- * - Their `unsupportedClouds` does not include `cloudEnvironment` (redanthrax/CIPP#4)
+ * - Their `unsupportedClouds` does not include `cloudEnvironment` (redanthrax/CIPP#4), unless the
+ *   page's matrix entry has a supported `navFallback`, which the item then links to instead
  * - The user has a permission matching one of the required permissions (exact match or pattern match)
  *
  * @param {Array} items - Menu items to filter
@@ -51,7 +53,8 @@ export const filterMenuItems = (
   }
 
   return items
-    .map((item) => {
+    .map((menuItem) => {
+      let item = menuItem
       // Check if page is hidden by feature flag
       if (
         item.path &&
@@ -67,7 +70,12 @@ export const filterMenuItems = (
         Array.isArray(item.unsupportedClouds) &&
         item.unsupportedClouds.includes(cloudEnvironment)
       ) {
-        return null
+        // A page whose matrix entry names a supported fallback opens that page instead
+        const fallback = item.items?.length
+          ? undefined
+          : getCloudNavFallback(item.path, cloudEnvironment)
+        if (!fallback) return null
+        item = { ...item, path: fallback }
       }
 
       // Check if this is a group (has sub-items)
