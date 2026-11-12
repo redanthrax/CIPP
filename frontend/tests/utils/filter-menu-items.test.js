@@ -302,6 +302,9 @@ describe('filterMenuItems cloudEnvironment', () => {
           '/security/compliance/retention',
           '/security/compliance/sit',
           '/teams-share/teams/business-voice',
+          '/tenant/gsa/filtering-policies',
+          '/tenant/gsa/security-profiles',
+          '/tenant/gsa/traffic-forwarding',
           '/tenant/reports/graph-office-reports',
         ].sort()
       )
