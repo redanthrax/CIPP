@@ -272,9 +272,10 @@ Describe 'Invoke-ExecUpdateRefreshToken additional partner tenant' {
             $Enc = { param($T) [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($T)).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
             '{0}.{1}.sig' -f (& $Enc '{"alg":"RS256"}'), (& $Enc (@{ aud = $script:Aud[$Cloud]; iss = 'https://sts.windows.net/x/'; tid = $script:NewPartner } | ConvertTo-Json -Compress))
         }
-        function Invoke-AddPartner($Cloud, $TokenCloud) {
+        function Invoke-AddPartner($Cloud, $TokenCloud, [switch]$NoToken) {
             if (-not $TokenCloud) { $TokenCloud = if ($Cloud) { $Cloud } else { 'Commercial' } }
             $Body = [pscustomobject]@{ tenantId = $script:NewPartner; refreshtoken = 'partner-token'; accessToken = (New-PartnerJwt $TokenCloud); tenantMode = 'GDAP'; addPartner = $true }
+            if ($NoToken) { $Body.PSObject.Properties.Remove('accessToken') }
             if ($Cloud) { $Body | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue $Cloud }
             $Principal = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((@{ userRoles = @('superadmin') } | ConvertTo-Json -Compress)))
             Invoke-ExecUpdateRefreshToken -Request ([pscustomobject]@{ Params = @{ CIPPEndpoint = 'ExecUpdateRefreshToken' }; Headers = @{ 'x-ms-client-principal' = $Principal }; Body = $Body })
@@ -297,6 +298,21 @@ Describe 'Invoke-ExecUpdateRefreshToken additional partner tenant' {
     It 'stores a commercial partner sign-in on a commercial instance, as before' {
         (Invoke-AddPartner).StatusCode | Should -Be 200
         Should -Invoke Set-CippKeyVaultSecret -Times 1 -Exactly -ParameterFilter { $Name -eq "partner-$($script:NewPartner)" }
+    }
+
+    It 'stores a partner added without an access token on a commercial instance, as upstream does' {
+        (Invoke-AddPartner -NoToken).StatusCode | Should -Be 200
+        Should -Invoke Set-CippKeyVaultSecret -Times 1 -Exactly -ParameterFilter { $Name -eq "partner-$($script:NewPartner)" }
+    }
+
+    It 'refuses a partner added without an access token on a <PartnerCloud> instance and stores nothing' -TestCases @(
+        @{ PartnerCloud = 'USGovHigh' }
+        @{ PartnerCloud = 'USGovDoD' }
+    ) {
+        param($PartnerCloud)
+        $env:CIPP_PARTNER_CLOUD = $PartnerCloud
+        (Invoke-AddPartner -NoToken).StatusCode | Should -Be 500
+        Should -Invoke Set-CippKeyVaultSecret -Times 0 -Exactly
     }
 
     It 'refuses a <Cloud> sign-in (token <TokenCloud>) on a <PartnerCloud> instance and stores nothing' -TestCases @(
