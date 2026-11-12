@@ -25,6 +25,16 @@ A wrong token resource fails at the government authority (`AADSTS500011`); it ne
 
 **Not supported for government tenants** (throws before any token or request): Teams admin ConfigAPI (`api.interfaces.records.teams.microsoft.com` - no documented government host), Security & Compliance PowerShell (`ps.compliance.protection.outlook.com` - its redirect discovery builds commercial host names), Partner Center, `admin.microsoft.com`, `licensing.m365.microsoft.com`, `reports.office.com`, `substrate.office.com`, `outlook.office.com`, the MFA push connector, and any GUID-form token resource.
 
+**Graph paths Azure Government does not have.** These reach `graph.microsoft.us` and fail there; they are not refused by the helpers but are gated by the feature support matrix ([feature support](gcchigh-feature-support.md), #4). Live results for a GCC High tenant on 2026-11-11:
+
+| Path | Result | CIPP |
+| --- | --- | --- |
+| `beta/copilot/admin/settings`, `beta/copilot/admin/policySettings/...` | 400 Resource not found for the segment 'admin' | Gated (`copilot-admin`) |
+| `beta/copilot/admin/catalog/packages` | 400 Resource not found for the segment 'admin' | Gated (`copilot-admin`) |
+| `beta/reports/getOneDriveUsageAccountDetail`, `getTeamsUserActivityUserDetail`, `getMailboxUsageDetail` | 200 | Supported; CIPP calls these |
+| `v1.0/reports/...` usage reports | 400 Resource not found for the segment | Not called by CIPP |
+| Users filtered or written with the partner's `ext..._cippUser` schema extension | 500 Resource does not exist | JIT Admin refused (`Get-CIPPJITAdminCloudError`) |
+
 ### Helpers
 
 | Helper | Government behaviour |
