@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Chip, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Button, Chip, Link, Stack, TextField, Typography } from "@mui/material";
 import { Grid } from "@mui/system";
 import CippButtonCard from "../CippCards/CippButtonCard";
 import { ApiGetCall, ApiPostCall } from "../../api/ApiCall";
 import { CippApiResults } from "../CippComponents/CippApiResults";
 import { CippCopyToClipBoard } from "../CippComponents/CippCopyToClipboard";
+
+export const GOV_APP_DOCS_URL =
+  "https://docs.cipp.app/setup/installation/government-direct-tenants#permissions";
 
 const GUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -100,11 +103,14 @@ export const CippGovAppCredentials = () => {
           <Typography variant="body2" sx={{ mb: 1 }}>
             Direct tenants in GCC High or DoD sign in through an app registered in Azure Government
             (portal.azure.us), not CIPP-SAM. Register a multi-tenant app there, add the redirect URI
-            below as a Web redirect URI, give it the delegated Microsoft Graph permissions
-            DelegatedPermissionGrant.ReadWrite.All, Directory.ReadWrite.All and
-            AppRoleAssignment.ReadWrite.All, then enter its application ID and save it. Add the
-            certificate generated here to the app registration, or a client secret if this instance
-            does not use certificate authentication.
+            below as a Web redirect URI, give it the same Microsoft Graph permissions as CIPP-SAM
+            (delegated and application, matched by name: some ids differ in Azure Government) and
+            grant admin consent, then enter its application ID and save it. Add the certificate
+            generated here to the app registration, or a client secret if this instance does not use
+            certificate authentication.{" "}
+            <Link href={GOV_APP_DOCS_URL} target="_blank" rel="noopener noreferrer">
+              Permissions and setup guide
+            </Link>
           </Typography>
         </Grid>
         <Row label="Authority">

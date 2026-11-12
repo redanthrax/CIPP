@@ -291,9 +291,12 @@ describe('filterMenuItems cloudEnvironment', () => {
       const hidden = all.filter((path) => !gov.includes(path))
       expect(hidden.sort()).toEqual(
         [
+          '/copilot/agent365/packages',
+          '/copilot/settings',
           '/copilot/reports/copilot-adoption',
           '/copilot/reports/copilot-trend',
           '/copilot/reports/copilot-usage',
+          '/identity/administration/jit-admin',
           '/security/compliance/dlp',
           '/security/compliance/labels',
           '/security/compliance/retention',
@@ -303,6 +306,35 @@ describe('filterMenuItems cloudEnvironment', () => {
         ].sort()
       )
       expect(gov).toContain('/security/compliance/dlp-templates')
+    })
+
+    const jitItem = (cloudEnvironment) =>
+      leafPages(filterMenuItems(nativeMenuItems, { permissions: everyPermission, cloudEnvironment })).find(
+        (page) => page.title === 'JIT Admin'
+      )
+
+    it('links JIT Admin to its Requests page for a government tenant, keeping its title and permissions', () => {
+      for (const cloud of ['USGovHigh', 'USGovDoD']) {
+        const item = jitItem(cloud)
+        expect(item.path).toBe('/identity/administration/jit-admin/requests')
+        expect(item.permissions).toEqual(['Identity.Role.*'])
+      }
+      expect(jitItem('USGovHigh')).not.toBe(jitItem(undefined))
+      expect(filterMenuItems(nativeMenuItems, { permissions: ['Other.Read'], cloudEnvironment: 'USGovHigh' })).toEqual([])
+    })
+
+    it('gives Commercial and AllTenants the unchanged JIT Admin item, the same object as the config', () => {
+      const configItem = leafPages(nativeMenuItems).find((page) => page.title === 'JIT Admin')
+      expect(configItem.path).toBe('/identity/administration/jit-admin')
+      expect(jitItem('Commercial')).toBe(configItem)
+      expect(jitItem(undefined)).toBe(configItem)
+      // every Commercial page is the config's own object, so nothing about the menu changed
+      const configPages = leafPages(nativeMenuItems)
+      for (const page of leafPages(
+        filterMenuItems(nativeMenuItems, { permissions: everyPermission, cloudEnvironment: 'Commercial' })
+      )) {
+        expect(configPages).toContain(page)
+      }
     })
   })
 })

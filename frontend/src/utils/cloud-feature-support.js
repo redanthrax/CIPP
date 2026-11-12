@@ -44,18 +44,37 @@ export const isCloudSupported = (type, name, cloud) =>
 
 // A page and the pages under it share its entry: /teams-share/teams/business-voice also covers
 // /teams-share/teams/business-voice/<anything>, but not /teams-share/teams/business-voice-x.
+// An entry with `exact: true` covers only that page, not the pages under it.
 export const getUnsupportedPage = (pathname, cloud) => {
   if (!pathname || !cloud || cloud === 'Commercial') return undefined
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
   for (const [pagePath, entry] of index.pages) {
     if (
-      (path === pagePath || path.startsWith(`${pagePath}/`)) &&
+      (path === pagePath ||
+        (!entry.exact && path.startsWith(`${pagePath}/`))) &&
       entry.unsupportedClouds.includes(cloud)
     ) {
       return getCloudSupportEntry('pages', pagePath)
     }
   }
   return undefined
+}
+
+// The page a nav item opens instead when its own page is not supported in `cloud` (the entry's
+// `navFallback`), e.g. JIT Admin opens its Requests tab for a government tenant. Undefined for
+// Commercial, AllTenants, an unknown cloud, a page without a fallback or an unsupported fallback.
+export const getCloudNavFallback = (path, cloud) => {
+  if (!path || !cloud || cloud === 'Commercial') return undefined
+  const fallback = index.pages.get(path)?.navFallback
+  return fallback && !getUnsupportedPage(fallback, cloud) ? fallback : undefined
+}
+
+// Tabs whose page is not supported in `cloud` are left out. Returns the same array when nothing is
+// removed, so Commercial and AllTenants callers see no change at all.
+export const filterCloudSupportedTabs = (tabs, cloud) => {
+  if (!Array.isArray(tabs) || !cloud || cloud === 'Commercial') return tabs
+  const filtered = tabs.filter((tab) => !getUnsupportedPage(tab?.path, cloud))
+  return filtered.length === tabs.length ? tabs : filtered
 }
 
 // Copies the matrix's page entries onto nav items as `unsupportedClouds`, which filterMenuItems

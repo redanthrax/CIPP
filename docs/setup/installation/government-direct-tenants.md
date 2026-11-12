@@ -7,7 +7,7 @@ GCC (Moderate) tenants run on the commercial cloud. Add them as **Commercial / G
 {% endhint %}
 
 {% hint style="warning" %}
-CIPP sends a government tenant's requests to that cloud's hosts: Microsoft Graph, Exchange Online (`outlook.office365.us` for GCC High, `webmail.apps.mil` for DoD), the Office 365 Management API, Defender for Endpoint and SharePoint. Features built on services with no documented government endpoint CIPP can use - Teams policies, Security & Compliance (Purview) PowerShell, Partner Center, the classic admin APIs and MFA push notifications - return a "not supported for government tenants" error. The automatic permission push is skipped for government tenants. Pages for those features are not hidden yet.
+CIPP sends a government tenant's requests to that cloud's hosts: Microsoft Graph, Exchange Online (`outlook.office365.us` for GCC High, `webmail.apps.mil` for DoD), the Office 365 Management API, Defender for Endpoint and SharePoint. Features built on services with no documented government endpoint CIPP can use - Teams policies, Security & Compliance (Purview) PowerShell, Partner Center, the classic admin APIs and MFA push notifications - return a "not supported for government tenants" error. So do features Microsoft Graph in Azure Government does not have (for example Copilot admin settings) and JIT Admin. Their pages are hidden while a government tenant is selected, and their standards, alerts and scheduled jobs skip government tenants. The automatic permission push is skipped for government tenants, so you add the app's permissions yourself (step 1).
 {% endhint %}
 
 ## 1. Register the Azure Government app
@@ -15,8 +15,43 @@ CIPP sends a government tenant's requests to that cloud's hosts: Microsoft Graph
 1. Sign in to the Azure Government portal (`https://portal.azure.us`) with an account in a GCC High or DoD tenant you control, and open **Microsoft Entra ID > App registrations > New registration**.
 2. Name it (for example `CIPP-Gov`) and choose **Accounts in any organizational directory (Multitenant)**.
 3. Under **Redirect URI**, choose **Web** and enter `https://<your CIPP address>/authredirect`. The Credentials page in CIPP shows the exact value.
-4. Under **API permissions**, add these **delegated** Microsoft Graph permissions: `DelegatedPermissionGrant.ReadWrite.All`, `Directory.ReadWrite.All` and `AppRoleAssignment.ReadWrite.All`. Add any further permissions you want CIPP to use in government tenants (for mailboxes, the **Office 365 Exchange Online** `Exchange.Manage` delegated permission); the tenant administrator consents to them when adding the tenant.
+4. Under **API permissions**, add the permissions CIPP uses (see [Permissions](#permissions) below): the same Microsoft Graph permissions as CIPP-SAM, delegated **and** application, plus the Exchange Online and Defender for Endpoint permissions for those features. The tenant administrator consents to them when adding the tenant.
 5. Under **Certificates & secrets**, add the credential CIPP will use (step 2): the certificate CIPP generates, or a client secret. If certificate authentication is turned on for your CIPP instance, only the certificate is used.
+
+### Permissions
+
+CIPP pushes CIPP-SAM's permissions into GDAP tenants automatically, but that push is skipped for government tenants, so the Azure Government app must already have everything CIPP calls. Some pages call Microsoft Graph as the signed-in admin and some call it app-only, so add both the **delegated** and the **application** permissions.
+
+**Microsoft Graph.** Use the Microsoft Graph entry (`resourceAppId` `00000003-0000-0000-c000-000000000000`) of CIPP-SAM's manifest, `backend/Config/SAMManifest.json` in the CIPP repository. You cannot paste it into the government app as it is: Microsoft Graph in Azure Government uses different ids for some permissions and does not have others. Checked against GCC High on 2026-11-11, 29 of the manifest's Graph permission ids differ and these 6 do not exist:
+
+| Permission | Type |
+| --- | --- |
+| `RoleManagement.ReadWrite.Exchange` | Application |
+| `TeamsUserConfiguration.Read.All` | Application and delegated |
+| `ThreatSubmission.ReadWrite.All` | Application |
+| `DelegatedAdminRelationship.ReadWrite.All` | Delegated |
+| `RoleManagement.Read.Exchange` | Delegated |
+
+Match each permission **by name** (and type) against the Microsoft Graph service principal in Azure Government. `build/tools/New-CippGovAppPermissions.ps1` does this from a JSON export of that service principal and prints the permissions it had to skip:
+
+```powershell
+az cloud set --name AzureUSGovernment
+az login   # an account in the GCC High or DoD tenant that owns the app
+az rest --uri "https://graph.microsoft.us/v1.0/servicePrincipals(appId='00000003-0000-0000-c000-000000000000')?`$select=appId,appRoles,oauth2PermissionScopes" > govgraph.json
+./build/tools/New-CippGovAppPermissions.ps1 -ServicePrincipalPath ./govgraph.json -OutFile ./gov-graph-permissions.json
+```
+
+For DoD use `https://dod-graph.microsoft.us`. In the app registration's **Manifest**, replace the `requiredResourceAccess` item whose `resourceAppId` is `00000003-0000-0000-c000-000000000000` with the content of `gov-graph-permissions.json` (keep the other items), and save. The script only reads the three files; it does not sign in or change anything.
+
+**Other services.** Add these by name from the same API in the **APIs my organization uses** list. They only work where the tenant is licensed for the service:
+
+* **Office 365 Exchange Online**: `Exchange.Manage`, `Calendars.ReadWrite.All` and `MailboxSettings.ReadWrite` (delegated); `Exchange.ManageAsApp`, `Calendars.ReadWrite.All` and `MailboxSettings.ReadWrite` (application). Needed for mailboxes, transport rules and the other Exchange pages.
+* **WindowsDefenderATP**: `Vulnerability.Read` (delegated) and `Vulnerability.Read.All` (application). Needed for Defender for Endpoint vulnerability data; the tenant needs a Defender for Endpoint licence.
+* CIPP-SAM also has Office 365 SharePoint Online (`AllSites.FullControl`; `Sites.FullControl.All`, `User.ReadWrite.All`) and Office 365 Management APIs (`ActivityFeed.Read`) permissions. Add them if you use the SharePoint pages or audit log alerts with government tenants.
+
+Partner Center and the Skype and Teams Tenant Admin API are not needed: CIPP does not call them for government tenants.
+
+**Consent.** After changing the permissions, select **Grant admin consent** in each government tenant (or sign in to the tenant again from CIPP and consent). Tenants that are already added pick up the new permissions with the next access token CIPP requests for them, so you do not need to remove and re-add them. Allow a few minutes, and up to about an hour while tokens CIPP has already cached for the tenant expire.
 
 ## 2. Enter the app in CIPP
 

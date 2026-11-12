@@ -36,6 +36,14 @@
     "audit-log-query": {
       "reason": "Creates Purview audit log searches (security/auditLog/queries), which are available in the global service only.",
       "evidence": "https://learn.microsoft.com/graph/api/security-auditcoreroot-list-auditlogqueries?view=graph-rest-beta (global only)"
+    },
+    "copilot-admin": {
+      "reason": "Uses the Microsoft 365 Copilot admin API (copilot/admin/settings, copilot/admin/policySettings, copilot/admin/catalog), which Microsoft Graph in GCC High does not have.",
+      "evidence": "Live test 2026-11-11 on graph.microsoft.us: beta/copilot/admin/settings and beta/copilot/admin/catalog/packages returned 400 Resource not found for the segment 'admin'. DoD is listed because Microsoft 365 Copilot is not offered there either."
+    },
+    "cipp-schema-extension": {
+      "reason": "JIT Admin stores its state in CIPP's cippUser schema extension, which CIPP registers in the partner tenant with CIPP-SAM in the commercial cloud. That extension does not exist in Azure Government, so government tenants cannot read or write it.",
+      "evidence": "Live test 2026-11-11 on graph.microsoft.us: ListJITAdmin returned 500 Resource 'ext..._cippUser' does not exist. Get-CIPPSchemaExtensions only reads and creates extensions in the partner tenant's cloud."
     }
   },
   "pages": [
@@ -110,6 +118,32 @@
         "USGovDoD"
       ],
       "source": "copilot-usage-reports"
+    },
+    {
+      "path": "/copilot/settings",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
+    {
+      "path": "/copilot/agent365/packages",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
+    {
+      "path": "/identity/administration/jit-admin",
+      "exact": true,
+      "navFallback": "/identity/administration/jit-admin/requests",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "cipp-schema-extension"
     }
   ],
   "actions": [
@@ -298,9 +332,41 @@
         "USGovDoD"
       ],
       "source": "m365-licensing"
+    },
+    {
+      "name": "CopilotSettings",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
+    {
+      "name": "CopilotLimitedMode",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
     }
   ],
   "baselineStandards": [
+    {
+      "name": "CopilotLimitedMode",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
+    {
+      "name": "CopilotSettings",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
     {
       "name": "DefenderCompliancePolicy",
       "unsupportedClouds": [
@@ -874,6 +940,22 @@
         "USGovDoD"
       ],
       "source": "copilot-usage-reports"
+    },
+    {
+      "name": "CopilotAdminSettings",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
+    },
+    {
+      "name": "CopilotPolicySettings",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "copilot-admin"
     }
   ],
   "timers": [
@@ -887,16 +969,6 @@
     }
   ],
   "unverified": [
-    {
-      "feature": "Microsoft 365 usage reports through Graph beta (reports/getMailboxUsageDetail, getOffice365ActiveUserDetail, getOneDriveUsageAccountDetail, getSharePointSiteUsageDetail, getTeamsUserActivityUserDetail, getM365AppUserDetail, getOffice365ActivationsUserDetail)",
-      "affects": "Cache types MailboxUsage, Mailboxes (usage columns), ActiveUserDetail, OneDriveUsage, SiteActivity, OneDriveLongPaths, TeamsActivity, M365AppUserDetail, OfficeActivations; pages /email/reports/mailbox-statistics, /teams-share/reports/teams-activity, the SharePoint/OneDrive usage columns; alerts QuotaUsed, OnedriveQuota; license recommendations",
-      "note": "Microsoft's v1.0 pages say global only and the live v1.0 test (2026-11-11) returned 400 Resource not found for the segment, but the beta pages, which CIPP calls, list every cloud. Needs a licensed GCC High tenant to settle."
-    },
-    {
-      "feature": "Copilot admin settings and policy settings (copilot/admin/settings, copilot/admin/policySettings)",
-      "affects": "Page /copilot/settings, standard CopilotSettings, cache types CopilotAdminSettings and CopilotPolicySettings, baseline executor CopilotLimitedMode",
-      "note": "No national cloud table found in the Graph docs."
-    },
     {
       "feature": "Defender for Endpoint deployment form (AddDefenderDeployment)",
       "affects": "Page /security/defender/deployment",

@@ -1,7 +1,7 @@
 # The cloud support matrix (redanthrax/CIPP#4): the backend reads backend/Config/cloudFeatureSupport.json, the UI
 # imports frontend/src/data/cloudFeatureSupport.json. Edit the frontend copy and copy it over the backend one.
 # The baseline standard and test lists are derived from the definitions they gate; these tests re-derive them so a
-# new Teams or Security & Compliance baseline standard, or a new test that reads only an unsupported cache type,
+# new Teams, Security & Compliance or Copilot admin baseline standard, or a new test that reads only an unsupported cache type,
 # fails here until the matrix lists it.
 
 BeforeDiscovery {
@@ -22,9 +22,12 @@ BeforeAll {
     $script:NavConfig = [System.IO.File]::ReadAllText((Join-Path $RepoRoot 'frontend/src/layouts/config.jsx'))
     $script:UnsupportedCache = @($script:Matrix.cacheTypes.name)
 
-    # The executors and flags whose calls #3 refuses for government tenants.
+    # The executors and flags whose calls #3 refuses for government tenants, or that only call the Copilot admin API.
     $script:UnsupportedExecutors = @('TeamsRequest', 'TeamsFederationConfiguration', 'QuarantineRequestAlert', 'DlpCompliancePolicyTemplate',
-        'RetentionCompliancePolicyTemplate', 'SensitiveInfoTypeTemplate', 'SensitivityLabelTemplate', 'DefenderCompliancePolicy', 'DisableSelfServiceLicenses')
+        'RetentionCompliancePolicyTemplate', 'SensitiveInfoTypeTemplate', 'SensitivityLabelTemplate', 'DefenderCompliancePolicy', 'DisableSelfServiceLicenses',
+        'CopilotLimitedMode')
+    # Graph paths government Graph does not have: a GraphRequest step that calls one is unsupported.
+    $script:UnsupportedGraphPaths = '"uri":"(https://graph\.microsoft\.com/(beta|v1\.0)/)?/?copilot/admin/'
 }
 
 Describe 'cloudFeatureSupport.json copies' {
@@ -71,7 +74,7 @@ Describe 'cloudFeatureSupport.json entries exist' {
 }
 
 Describe 'derived lists' {
-    It 'lists exactly the baseline standards that use an unsupported executor, compliance step or cache type' {
+    It 'lists exactly the baseline standards that use an unsupported executor, compliance step, Graph path or cache type' {
         $Derived = foreach ($File in Get-ChildItem -Path (Join-Path $script:BackendRoot 'Config/BaselineStandards') -Recurse -Filter '*.json') {
             $Definition = try { [System.IO.File]::ReadAllText($File.FullName) | ConvertFrom-Json } catch { $null }
             if (-not $Definition.name) { continue }
@@ -79,11 +82,26 @@ Describe 'derived lists' {
             $RemediateJson = if ($Remediate) { $Remediate | ConvertTo-Json -Depth 50 -Compress } else { '' }
             if ($Remediate.executor -in $script:UnsupportedExecutors -or
                 $RemediateJson -match '"compliance":true' -or
+                $RemediateJson -match $script:UnsupportedGraphPaths -or
                 ($Definition.read.cacheType -and $Definition.read.cacheType -in $script:UnsupportedCache)) {
                 $Definition.name
             }
         }
         @($script:Matrix.baselineStandards.name | Sort-Object) | Should -Be @($Derived | Sort-Object -Unique)
+    }
+
+    It 'lists every classic standard and cache type that calls the Copilot admin API' {
+        $Sets = @(
+            @{ Folder = 'Modules/CIPPStandards'; Prefix = 'Invoke-CIPPStandard'; Listed = @($script:Matrix.standards.name) }
+            @{ Folder = 'Modules/CIPPDB'; Prefix = 'Set-CIPPDBCache'; Listed = $script:UnsupportedCache }
+        )
+        foreach ($Set in $Sets) {
+            foreach ($File in Get-ChildItem -Path (Join-Path $script:BackendRoot $Set.Folder) -Recurse -Filter "$($Set.Prefix)*.ps1") {
+                if ([System.IO.File]::ReadAllText($File.FullName) -match 'copilot/admin/') {
+                    ($File.BaseName -replace "^$($Set.Prefix)", '') | Should -BeIn $Set.Listed -Because "$($File.Name) calls copilot/admin, which government Graph does not have"
+                }
+            }
+        }
     }
 
     It 'lists exactly the tests that read only unsupported cache types' {

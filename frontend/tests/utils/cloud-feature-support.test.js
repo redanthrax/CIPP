@@ -4,6 +4,8 @@ import path from 'node:path'
 import matrix from '../../src/data/cloudFeatureSupport.json'
 import {
   filterCloudSupportedActions,
+  filterCloudSupportedTabs,
+  getCloudNavFallback,
   findTenantCloud,
   getCloudSupportEntry,
   getGovernmentClouds,
@@ -95,6 +97,26 @@ describe('getUnsupportedPage', () => {
     ).toBeUndefined()
   })
 
+  it('matches only the page itself for an exact entry', () => {
+    // JIT Admin is unsupported, its tenant-independent template pages are not
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin', 'USGovHigh')
+        ?.source
+    ).toEqual('cipp-schema-extension')
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin/', 'USGovDoD')
+        ?.source
+    ).toEqual('cipp-schema-extension')
+    for (const sub of ['templates', 'role-templates', 'requests', 'add']) {
+      expect(
+        getUnsupportedPage(`/identity/administration/jit-admin/${sub}`, 'USGovHigh')
+      ).toBeUndefined()
+    }
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin', 'Commercial')
+    ).toBeUndefined()
+  })
+
   it('blocks nothing for Commercial or an unknown cloud', () => {
     expect(
       getUnsupportedPage('/security/compliance/dlp', 'Commercial')
@@ -145,6 +167,44 @@ describe('filterCloudSupportedActions', () => {
   it('returns the same array when nothing is removed', () => {
     const safe = actions.slice(1)
     expect(filterCloudSupportedActions(safe, 'USGovDoD')).toBe(safe)
+  })
+})
+
+describe('getCloudNavFallback', () => {
+  const jit = '/identity/administration/jit-admin'
+
+  it('gives JIT Admin its Requests page for government tenants only', () => {
+    expect(getCloudNavFallback(jit, 'USGovHigh')).toBe(`${jit}/requests`)
+    expect(getCloudNavFallback(jit, 'USGovDoD')).toBe(`${jit}/requests`)
+    for (const cloud of ['Commercial', undefined, null]) expect(getCloudNavFallback(jit, cloud)).toBeUndefined()
+  })
+
+  it('has no fallback for pages without one', () => {
+    expect(getCloudNavFallback('/copilot/settings', 'USGovHigh')).toBeUndefined()
+    expect(getCloudNavFallback(undefined, 'USGovHigh')).toBeUndefined()
+  })
+
+  it('only names fallbacks that are themselves supported', () => {
+    for (const entry of matrix.pages.filter((page) => page.navFallback)) {
+      for (const cloud of entry.unsupportedClouds) expect(getUnsupportedPage(entry.navFallback, cloud)).toBeUndefined()
+    }
+  })
+})
+
+describe('filterCloudSupportedTabs', () => {
+  const tabs = [
+    { label: 'JIT Admins', path: '/identity/administration/jit-admin' },
+    { label: 'Requests', path: '/identity/administration/jit-admin/requests' },
+  ]
+
+  it('returns the same array for Commercial, AllTenants and an unknown cloud', () => {
+    for (const cloud of ['Commercial', undefined]) expect(filterCloudSupportedTabs(tabs, cloud)).toBe(tabs)
+  })
+
+  it('leaves out tabs whose page a government cloud does not support', () => {
+    expect(filterCloudSupportedTabs(tabs, 'USGovHigh').map((tab) => tab.label)).toEqual(['Requests'])
+    const supported = tabs.slice(1)
+    expect(filterCloudSupportedTabs(supported, 'USGovDoD')).toBe(supported)
   })
 })
 
