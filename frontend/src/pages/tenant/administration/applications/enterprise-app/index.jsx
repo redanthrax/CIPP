@@ -1,6 +1,7 @@
 import { Layout as DashboardLayout } from '../../../../../layouts/index'
 import { CippIcons } from '../../../../../utils/icon-registry'
 import { useSettings } from '../../../../../hooks/use-settings'
+import { useCloudPortalUrl } from '../../../../../hooks/use-tenant-cloud'
 import { useRouter } from 'next/router'
 import { ApiGetCall, ApiPostCall } from '../../../../../api/ApiCall'
 import CippFormSkeleton from '../../../../../components/CippFormPages/CippFormSkeleton'
@@ -40,6 +41,7 @@ const getLatestCredentialExpiry = (credentials = []) => {
 
 const Page = () => {
   const userSettingsDefaults = useSettings()
+  const toCloudPortal = useCloudPortalUrl()
   const { checkPermissions } = usePermissions()
   const canWriteApplication = checkPermissions(['Tenant.Application.ReadWrite'])
   const router = useRouter()
@@ -175,7 +177,7 @@ const Page = () => {
                 color="muted"
                 style={{ paddingLeft: 0 }}
                 size="small"
-                href={`https://entra.microsoft.com/${userSettingsDefaults.currentTenant}/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Overview/objectId/${spData?.id}/appId/${spData?.appId}`}
+                href={toCloudPortal(`https://entra.microsoft.com/${userSettingsDefaults.currentTenant}/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Overview/objectId/${spData?.id}/appId/${spData?.appId}`)}
                 target="_blank"
                 rel="noopener noreferrer"
               >

@@ -989,5 +989,42 @@
       "affects": "Most pages",
       "note": "The GCC High test tenant has no licences, so only core Entra Graph has been proven live."
     }
-  ]
+  ],
+  "portalHosts": {
+    "$comment": "Microsoft admin portal hosts for a government tenant's links (redanthrax/CIPP#4): a commercial portal host maps to the cloud's portal host, or to null when Microsoft documents no government admin URL for it (the link is not shown). Only the host is replaced. Sources (learn.microsoft.com): portal.azure.us - /azure/azure-government/compare-azure-government-global-azure and /graph/deployments; intune.microsoft.us - /intune/fundamentals/endpoints-us-government ('Microsoft Intune admin center: https://intune.microsoft.us/'); entra.microsoft.us - /entra/fundamentals/faq (Entra admin center URLs: *.entra.microsoft.us); security.microsoft.us (GCC High) and security.apps.mil (DoD) - /defender-endpoint/gov ('Portal URLs'); high.admin.powerplatform.microsoft.us (GCC High) and admin.appsplatform.us (DoD) - /power-platform/admin/powerapps-us-government. No documented government URL was found for the Microsoft 365 admin center partner links (delegatedOrg, BeginClientSession), the Exchange and Teams admin centers, Purview or the Power BI admin portal.",
+    "USGovHigh": {
+      "portal.azure.com": "portal.azure.us",
+      "aad.portal.azure.com": "portal.azure.us",
+      "entra.microsoft.com": "entra.microsoft.us",
+      "intune.microsoft.com": "intune.microsoft.us",
+      "endpoint.microsoft.com": "intune.microsoft.us",
+      "security.microsoft.com": "security.microsoft.us",
+      "admin.powerplatform.microsoft.com": "high.admin.powerplatform.microsoft.us",
+      "admin.cloud.microsoft": null,
+      "admin.microsoft.com": null,
+      "portal.office.com": null,
+      "admin.exchange.microsoft.com": null,
+      "admin.teams.microsoft.com": null,
+      "purview.microsoft.com": null,
+      "compliance.microsoft.com": null,
+      "app.powerbi.com": null
+    },
+    "USGovDoD": {
+      "portal.azure.com": "portal.azure.us",
+      "aad.portal.azure.com": "portal.azure.us",
+      "entra.microsoft.com": "entra.microsoft.us",
+      "intune.microsoft.com": "intune.microsoft.us",
+      "endpoint.microsoft.com": "intune.microsoft.us",
+      "security.microsoft.com": "security.apps.mil",
+      "admin.powerplatform.microsoft.com": "admin.appsplatform.us",
+      "admin.cloud.microsoft": null,
+      "admin.microsoft.com": null,
+      "portal.office.com": null,
+      "admin.exchange.microsoft.com": null,
+      "admin.teams.microsoft.com": null,
+      "purview.microsoft.com": null,
+      "compliance.microsoft.com": null,
+      "app.powerbi.com": null
+    }
+  }
 }

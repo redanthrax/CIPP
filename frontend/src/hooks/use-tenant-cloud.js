@@ -5,6 +5,7 @@ import {
   findTenantCloud,
   getGovernmentClouds,
 } from '../utils/cloud-feature-support'
+import { getCloudPortalUrl } from '../utils/cloud-portal-links'
 
 const TENANT_LIST_KEY = ['TenantSelector']
 
@@ -42,3 +43,11 @@ export const useTenantCloudEnvironment = (tenant) => {
 
 // The government clouds among the tenants the user can see ([] for a commercial-only estate).
 export const useGovernmentClouds = () => getGovernmentClouds(useTenantList())
+
+// A `(url) => url` mapper that points Microsoft admin portal links at the tenant's government portal,
+// or returns undefined when that portal has none (redanthrax/CIPP#4). For Commercial, AllTenants or an
+// unknown cloud it returns every URL unchanged.
+export const useCloudPortalUrl = (tenant) => {
+  const cloud = useTenantCloudEnvironment(tenant)
+  return useCallback((url) => getCloudPortalUrl(url, cloud), [cloud])
+}
