@@ -27,7 +27,7 @@ Each section lists features by key, with the clouds they are unsupported in and 
 
 ## Frontend
 
-* **Selected tenant's cloud.** `useTenantCloudEnvironment()` reads `cloudEnvironment` from the tenant list the tenant selector already cached (query key `TenantSelector`). It does not fetch anything. Until that list is cached, the cloud is unknown and nothing is gated.
+* **Selected tenant's cloud.** `useTenantCloudEnvironment()` reads `cloudEnvironment` from the tenant list the tenant selector already cached (query key `TenantSelector`). It reads the query cache directly (`useSyncExternalStore` on the cache's subscribe) and registers no query observer, so it does not fetch anything, never attaches an observer without a `queryFn` to the selector's query and re-renders only when that list changes. Until that list is cached, the cloud is unknown and nothing is gated.
 * **Navigation.** `config.jsx` passes the menu through `withCloudSupport`, which adds `unsupportedClouds` to the pages the matrix lists. `filterMenuItems` hides a page when `unsupportedClouds` includes the `cloudEnvironment` option. You can also set `unsupportedClouds` on a nav item by hand.
 * **Direct URL.** `Layout` shows "Not available for GCC High tenants" with the matrix reason instead of rendering the page. The page's own API calls never run.
 * **Actions.** `CippDataTable` and `HeaderedTabbedLayout` drop actions whose `url` is listed.
