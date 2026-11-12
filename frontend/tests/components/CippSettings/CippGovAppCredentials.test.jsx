@@ -2,7 +2,7 @@ import React from 'react'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithTheme } from '../../test-utils'
-import { CippGovAppCredentials, toPem } from '../../../src/components/CippSettings/CippGovAppCredentials'
+import { CippGovAppCredentials, GOV_APP_DOCS_URL, toPem } from '../../../src/components/CippSettings/CippGovAppCredentials'
 
 vi.mock('../../../src/api/ApiCall', async () => (await import('../../mocks/api-call')).apiCallMock())
 import { api, getResult, postResult } from '../../mocks/api-call'
@@ -32,6 +32,15 @@ describe('CippGovAppCredentials', () => {
     expect(screen.queryByText('https://cipp.example/authredirect')).not.toBeInTheDocument()
     expect(screen.getByText('https://login.microsoftonline.us/organizations')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+  })
+
+  it('points to the full permission requirement instead of listing a few permissions', () => {
+    api.get = getResult({ data: { Results: { configured: false, hasSecret: false, certificate: { configured: false } } } })
+    renderWithTheme(<CippGovAppCredentials />)
+    expect(screen.getByText(/same Microsoft Graph permissions as CIPP-SAM/)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: 'Permissions and setup guide' })
+    expect(link).toHaveAttribute('href', GOV_APP_DOCS_URL)
+    expect(GOV_APP_DOCS_URL).toContain('/setup/installation/government-direct-tenants')
   })
 
   it('saves the application id and secret through ExecGovAppCredentials', async () => {
