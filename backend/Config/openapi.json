@@ -12306,9 +12306,6 @@
                     "ExcludeUser": {
                       "x-cipp-field-source": "storage"
                     },
-                    "hasAutoExtend": {
-                      "x-cipp-field-source": "storage"
-                    },
                     "initialDomainName": {
                       "x-cipp-field-source": "storage"
                     },
@@ -12322,12 +12319,6 @@
                       "x-cipp-field-source": "storage"
                     },
                     "PartitionKey": {
-                      "x-cipp-field-source": "storage"
-                    },
-                    "relationshipCount": {
-                      "x-cipp-field-source": "storage"
-                    },
-                    "relationshipEnd": {
                       "x-cipp-field-source": "storage"
                     },
                     "RequiresRefresh": {
@@ -36037,6 +36028,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "cloudEnvironment": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "customerId": {
                       "x-cipp-field-source": "storage"
                     },
@@ -39713,6 +39707,7 @@
           {
             "name": "Action",
             "in": "query",
+            "description": "Reads normally use the partner tenant. A government tenant's permission ids differ from the partner cloud's (29 Graph ids in GCC High), so the app registration permissions view asks for that tenant's service principals instead (redanthrax/CIPP#4), in its own GovernmentTenantFilter parameter: callers that send the usual tenantFilter (e.g. tenant-scoped autocompletes) are not looked up at all and get the partner tenant exactly as before. Honoured only for reads, only for a tenant in a non-Commercial cloud and only when the caller may access it; anything else is the partner tenant, as before.",
             "required": false,
             "schema": {
               "type": "string",
@@ -39731,12 +39726,21 @@
             }
           },
           {
+            "name": "GovernmentTenantFilter",
+            "in": "query",
+            "description": "Reads normally use the partner tenant. A government tenant's permission ids differ from the partner cloud's (29 Graph ids in GCC High), so the app registration permissions view asks for that tenant's service principals instead (redanthrax/CIPP#4), in its own GovernmentTenantFilter parameter: callers that send the usual tenantFilter (e.g. tenant-scoped autocompletes) are not looked up at all and get the partner tenant exactly as before. Honoured only for reads, only for a tenant in a non-Commercial cloud and only when the caller may access it; anything else is the partner tenant, as before.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "Id",
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "format": "uuid",
+              "type": "string"
             }
           },
           {
@@ -60739,6 +60743,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
           },
           "401": {
             "description": "Unauthorized - invalid or missing bearer token"
