@@ -24,6 +24,7 @@ BeforeAll {
     function Get-CippTable { param($tablename) @{ TableName = $tablename } }
     function Get-CIPPAzDataTableEntity { param($TableName, $Filter) }
     function Add-CIPPAzDataTableEntity { param($TableName, $Entity, [switch]$Force) }
+    function Update-AzDataTableEntity { param($TableName, $Entity) }
     function Add-CIPPScheduledTask { param($Task, $hidden, [switch]$RunNow) }
     function Get-CIPPMFAStateReport { param($TenantFilter) }
     function Write-AlertTrace { param($cmdletName, $tenantFilter, $data) }
@@ -168,6 +169,34 @@ Describe 'JIT Admin for government tenants' {
             $Response.StatusCode | Should -Be 200
             Should -Invoke Add-CIPPScheduledTask -Times 2 -Exactly
             { Set-CIPPUserJITAdmin -TenantFilter 'contoso.com' -User @{ UserPrincipalName = 'jit@contoso.com' } -Action 'AddRoles' -WhatIf } | Should -Not -Throw
+        }
+
+        It 'refuses an approved government request without claiming it, and provisions an approved commercial one' {
+            Mock Update-AzDataTableEntity { }
+            Mock Get-CIPPAzDataTableEntity { }
+            foreach ($Tenant in 'gov.us', 'contoso.com') {
+                $Body = (New-ExecRequest -Tenant $Tenant).Body
+                $script:Row = [pscustomobject]@{
+                    PartitionKey = 'JITAdminRequest'; RowKey = '11111111-1111-1111-1111-111111111111'; ETag = 'e'
+                    State = 'Approved'; RequestedBy = 'admin@contoso.com'; Tenant = $Tenant
+                    RequestBody = ($Body | ConvertTo-Json -Depth 10 -Compress)
+                }
+                Mock Get-CIPPAzDataTableEntity { $script:Row } -ParameterFilter { $Filter -like "*JITAdminRequest*" }
+                $Request = New-ExecRequest -Tenant $Tenant
+                $Request.Body = [pscustomobject]@{ ApprovalRequestId = $script:Row.RowKey }
+                $script:Response = Invoke-ExecJITAdmin -Request $Request -TriggerMetadata $null
+                if ($Tenant -eq 'gov.us') {
+                    $script:Response.StatusCode | Should -Be 400
+                    $script:Response.Body.Results[0] | Should -BeLike '*not supported for USGovHigh*'
+                    Should -Invoke Update-AzDataTableEntity -Times 0 -Exactly
+                    Should -Invoke Add-CIPPScheduledTask -Times 0 -Exactly
+                }
+            }
+            $script:Response.StatusCode | Should -Be 200
+            Should -Invoke Update-AzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.State -eq 'Completed' }
+            Should -Invoke Add-CIPPScheduledTask -Times 2 -Exactly
+            # the commercial request is checked once, before the claim, exactly as an unapproved request is
+            Should -Invoke Get-CIPPTenantRequestCloud -Times 1 -Exactly -ParameterFilter { $TenantFilter -eq 'contoso.com' }
         }
 
         It 'lets removals run for a government tenant' {
