@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { SettingsContext } from '../../src/contexts/settings-context'
 import {
+  useCloudPortalUrl,
   useGovernmentClouds,
   useTenantCloudEnvironment,
   useTenantList,
@@ -141,5 +142,33 @@ describe('useTenantList', () => {
     act(() => client.setQueryData(['TenantSelector-other'], commercial))
     act(() => client.setQueryData(['ListUsers'], []))
     expect(renders).toBe(before)
+  })
+})
+
+describe('useCloudPortalUrl', () => {
+  const entra = 'https://entra.microsoft.com/x/#view/Y'
+  it.each([
+    ['a Commercial tenant', 'contoso.com'],
+    ['AllTenants', 'AllTenants'],
+  ])('returns portal links unchanged for %s', (_name, tenant) => {
+    const { client, wrapper } = setup(tenant)
+    client.setQueryData(['TenantSelector'], mixed)
+    const { result } = renderHook(() => useCloudPortalUrl(), { wrapper })
+    expect(result.current(entra)).toBe(entra)
+  })
+
+  it('returns portal links unchanged before the tenant list is cached', () => {
+    const { wrapper } = setup('gov.us')
+    const { result } = renderHook(() => useCloudPortalUrl(), { wrapper })
+    expect(result.current(entra)).toBe(entra)
+  })
+
+  it('points portal links at the government portal for the current or a given GCC High tenant', () => {
+    const { client, wrapper } = setup('gov.us')
+    client.setQueryData(['TenantSelector'], mixed)
+    const { result } = renderHook(() => useCloudPortalUrl(), { wrapper })
+    expect(result.current(entra)).toBe('https://entra.microsoft.us/x/#view/Y')
+    const given = renderHook(() => useCloudPortalUrl('contoso.com'), { wrapper })
+    expect(given.result.current(entra)).toBe(entra)
   })
 })

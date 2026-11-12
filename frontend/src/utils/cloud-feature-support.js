@@ -4,6 +4,7 @@
 // helper here is a no-op for Commercial tenants, for AllTenants and when the cloud is unknown.
 import matrix from '../data/cloudFeatureSupport.json'
 import { getCloudEnvironment } from './cloud-environments'
+import { getCloudPortalUrl } from './cloud-portal-links'
 
 const SECTIONS = [
   'pages',
@@ -99,17 +100,37 @@ export const withCloudSupport = (items) =>
     return next
   })
 
-// Row/bulk actions whose API the tenant's cloud does not support are left out. Returns the same
-// array when nothing is removed, so Commercial callers see no change at all.
+// Row/bulk actions whose API the tenant's cloud does not support are left out, and a `link` to a
+// Microsoft admin portal is pointed at the cloud's portal (dropped when it has none, see
+// cloud-portal-links.js). Returns the same array when nothing changes, so Commercial callers see no
+// change at all.
 export const filterCloudSupportedActions = (actions, cloud) => {
   if (!Array.isArray(actions) || !cloud || cloud === 'Commercial')
     return actions
-  const filtered = actions.filter((action) => {
+  let changed = false
+  const filtered = []
+  for (const action of actions) {
     const url =
       typeof action?.url === 'string' ? action.url.split('?')[0] : undefined
-    return !url || isCloudSupported('actions', url, cloud)
-  })
-  return filtered.length === actions.length ? actions : filtered
+    if (url && !isCloudSupported('actions', url, cloud)) {
+      changed = true
+      continue
+    }
+    if (typeof action?.link === 'string') {
+      const link = getCloudPortalUrl(action.link, cloud)
+      if (link === undefined) {
+        changed = true
+        continue
+      }
+      if (link !== action.link) {
+        changed = true
+        filtered.push({ ...action, link })
+        continue
+      }
+    }
+    filtered.push(action)
+  }
+  return changed ? filtered : actions
 }
 
 // The government clouds present in a tenant list (the ListTenants response), e.g. ['USGovHigh'].
