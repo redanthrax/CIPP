@@ -245,6 +245,7 @@ export const CippBaselineStandardItem = ({
                 />
               </Tooltip>
             )}
+            <CippCloudSupportChip type="baselineStandards" name={standard.name} />
             <Chip
               variant="outlined"
               size="small"
@@ -322,7 +323,6 @@ export const CippBaselineStandardItem = ({
                 />
               </Tooltip>
             )}
-            <CippCloudSupportChip type="baselineStandards" name={standard.name} />
           </Stack>
           <Divider />
 
