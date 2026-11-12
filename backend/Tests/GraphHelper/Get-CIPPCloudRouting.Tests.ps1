@@ -17,7 +17,7 @@ BeforeAll {
     function Get-CIPPAzDataTableEntity { param($Context, $Filter, $Property) }
     function Get-AuthorisedRequest { param($Uri, $TenantID) $true }
     function Get-AuthorisedRequestError { param($TenantID, $Context) }
-    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate) }
+    function Get-GraphToken { param($tenantid, $scope, $AsApp, $SkipCache, [switch]$UseCertificate, [string]$RequireCloud) }
     function Invoke-CIPPRestMethod { param($Uri, $Method, $Headers, $ContentType, $Body, $ResponseHeadersVariable, $StatusCodeVariable, [switch]$SkipHttpErrorCheck, $MaximumRedirection, $TimeoutSec) }
     function Get-CIPPTextReplacement { param($TenantFilter, $Text, [switch]$EscapeForJson) $Text }
     function Get-CippUserAgent { param([switch]$SharePoint) 'CIPP-test' }

@@ -38,6 +38,7 @@ function New-GraphGetRequest {
     }
 
     if ($NoAuthCheck -eq $true -or $IsAuthorised) {
+        $CallerHeaders = [bool]$headers
         if ($headers) {
             $headers = $Headers
         } else {
@@ -49,6 +50,11 @@ function New-GraphGetRequest {
         # A government tenant's requests go to its cloud's hosts (redanthrax/CIPP#3); for a commercial
         # tenant this is one in-memory lookup and every URI below is used exactly as before.
         $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
+        # A government tenant's token is fetched again for exactly the cloud chosen above: the first call can
+        # return a commercial token cached before the tenant's cloud changed in another worker (redanthrax/CIPP#3).
+        if ($RequestCloud -cne 'Commercial' -and -not $CallerHeaders) {
+            $headers = Get-GraphToken -tenantid $tenantid -scope $TokenScope -AsApp $asapp -SkipCache $skipTokenCache -UseCertificate:$UseCertificate -RequireCloud $RequestCloud
+        }
         if ($ComplexFilter) {
             $headers['ConsistencyLevel'] = 'eventual'
         }
