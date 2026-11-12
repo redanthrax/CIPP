@@ -76,7 +76,9 @@ function Invoke-ExecAddTenant {
             # storing it, so the stored token is still the tenant's working one (redanthrax/CIPP#2).
             $StoredCloud = if ($ExistingTenant.cloudEnvironment) { $ExistingTenant.cloudEnvironment } else { 'the partner cloud' }
             Write-LogMessage -tenant $ExistingTenant.defaultDomainName -tenantid $ExistingTenant.customerId -API 'NewTenant' -message "Blocked refreshing $($ExistingTenant.displayName): $ServiceAccount signed in to $TokenCloud but the tenant is stored as $StoredCloud." -Sev 'Warning'
-            $Results = @{'message' = "$($ExistingTenant.displayName) is stored as $StoredCloud, but the sign-in was for $TokenCloud. Sign in again choosing $StoredCloud, or change the tenant's cloud environment first."; 'severity' = 'error' }
+            # USGovHigh <-> USGovDoD can be changed in place; Commercial <-> government needs a remove and re-add (redanthrax/CIPP#3).
+            $Remedy = if ($TokenCloud -cne 'Commercial' -and $ExistingTenant.cloudEnvironment -and [string]$ExistingTenant.cloudEnvironment -cne 'Commercial') { "or change the tenant's cloud environment first" } else { "or remove the tenant and add it again in $TokenCloud" }
+            $Results = @{'message' = "$($ExistingTenant.displayName) is stored as $StoredCloud, but the sign-in was for $TokenCloud. Sign in again choosing $StoredCloud, $Remedy."; 'severity' = 'error' }
             $StatusCode = [HttpStatusCode]::BadRequest
         } elseif ($ExistingTenant) {
             # Existing direct tenant - refresh the stored credentials and service account details.
