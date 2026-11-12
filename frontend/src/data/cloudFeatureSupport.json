@@ -44,6 +44,10 @@
     "cipp-schema-extension": {
       "reason": "JIT Admin stores its state in CIPP's cippUser schema extension, which CIPP registers in the partner tenant with CIPP-SAM in the commercial cloud. That extension does not exist in Azure Government, so government tenants cannot read or write it.",
       "evidence": "Live test 2026-11-11 on graph.microsoft.us: ListJITAdmin returned 500 Resource 'ext..._cippUser' does not exist. Get-CIPPSchemaExtensions only reads and creates extensions in the partner tenant's cloud."
+    },
+    "global-secure-access": {
+      "reason": "Uses Microsoft Entra Global Secure Access (Graph networkAccess: traffic forwarding profiles, filtering policies, security profiles), which is not supported in GCC High or DoD.",
+      "evidence": "https://learn.microsoft.com/entra/global-secure-access/reference-current-known-limitations (Global Secure Access In Government Cloud limitations: available in GCC, \"isn't yet supported in the US Government Community Cloud High (GCC-H), Department of Defense cloud\")"
     }
   },
   "pages": [
@@ -144,6 +148,30 @@
         "USGovDoD"
       ],
       "source": "cipp-schema-extension"
+    },
+    {
+      "path": "/tenant/gsa/filtering-policies",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "path": "/tenant/gsa/security-profiles",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "path": "/tenant/gsa/traffic-forwarding",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
     }
   ],
   "actions": [
@@ -558,6 +586,46 @@
         "USGovDoD"
       ],
       "source": "teams-configapi"
+    },
+    {
+      "name": "GlobalSecureAccessCompliantNetwork",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "name": "GlobalSecureAccessInternetAccess",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "name": "GlobalSecureAccessM365Profile",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "name": "GlobalSecureAccessProfileTemplate",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "name": "GlobalSecureAccessSetup",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
     }
   ],
   "alerts": [
@@ -576,6 +644,14 @@
         "USGovDoD"
       ],
       "source": "managed-tenants"
+    },
+    {
+      "name": "LicenseRequests",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "m365-licensing"
     }
   ],
   "tests": [
@@ -770,6 +846,30 @@
         "USGovDoD"
       ],
       "source": "security-compliance"
+    },
+    {
+      "name": "ZTNA35003",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "security-compliance"
+    },
+    {
+      "name": "ZTNA35030",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "security-compliance"
+    },
+    {
+      "name": "ZTNA35033",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "security-compliance"
     }
   ],
   "cacheTypes": [
@@ -956,6 +1056,22 @@
         "USGovDoD"
       ],
       "source": "copilot-admin"
+    },
+    {
+      "name": "NetworkAccess",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
+    },
+    {
+      "name": "NetworkAccessFiltering",
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "global-secure-access"
     }
   ],
   "timers": [

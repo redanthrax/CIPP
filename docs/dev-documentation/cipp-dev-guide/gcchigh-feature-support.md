@@ -31,10 +31,13 @@ Each section lists features by key, with the clouds they are unsupported in and 
 | --- | --- | --- |
 | `teams-configapi` | Business Voice | Teams standards, baselines, CIS 8.x tests, Teams cache types |
 | `security-compliance` | DLP, retention, labels, sensitive info types | Purview standards and baselines, CIS 3.2.x, CopilotReady014, ORCA242, compliance cache types |
-| `m365-licensing`, `mde-connector`, `mfa-connector`, `reports-office`, `audit-log-query`, `managed-tenants` | Graph/Office reports | Self-service licences, Defender compliance policy, MFA push action, Copilot readiness cache, audit log planner, Defender alerts |
+| `m365-licensing`, `mde-connector`, `mfa-connector`, `reports-office`, `audit-log-query`, `managed-tenants` | Graph/Office reports | Self-service licences, pending licence requests alert, Defender compliance policy, MFA push action, Copilot readiness cache, audit log planner, Defender alerts |
 | `copilot-usage-reports` | Copilot adoption, trend, usage | CopilotReady015-017, Copilot usage cache types |
 | `copilot-admin` | Copilot Settings, Agent 365 Packages | CopilotSettings and CopilotLimitedMode standards and baselines, CopilotAdminSettings and CopilotPolicySettings cache types |
+| `global-secure-access` | Global Secure Access (filtering policies, security profiles, traffic forwarding) | Global Secure Access baselines, NetworkAccess and NetworkAccessFiltering cache types |
 | `cipp-schema-extension` | JIT Admins (exact: the template, role template, request and add pages stay; the JIT Admin nav item opens Requests and the JIT Admins tab is hidden) | JIT Admin endpoints, see below |
+
+`global-secure-access`: Microsoft's [known limitations](https://learn.microsoft.com/entra/global-secure-access/reference-current-known-limitations) page says Global Secure Access is available in GCC but "isn't yet supported in the US Government Community Cloud High (GCC-H), Department of Defense cloud" (read 2026-11-11). Upstream added the Global Secure Access pages and most of its baselines; the existing Compliant Network baseline reads the same cache type and is gated with them.
 
 `copilot-admin`: on 2026-11-11 `beta/copilot/admin/settings` (all five settings on the Copilot Settings page) and `beta/copilot/admin/catalog/packages` returned 400 "Resource not found for the segment 'admin'" from `graph.microsoft.us` for a GCC High tenant. DoD is listed with it because Microsoft 365 Copilot is not offered there either.
 
