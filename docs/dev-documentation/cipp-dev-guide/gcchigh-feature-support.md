@@ -57,7 +57,7 @@ Microsoft 365 usage reports are not gated. On 2026-11-11, with `Reports.Read.All
 
 | Job | Government tenant |
 | --- | --- |
-| Classic standards | Removed from the run in `Push-CIPPStandardsList`, which sets the compare field to "Not supported for USGovHigh tenants." and writes one log line per tenant per run. `Push-CIPPStandard` also skips listed standards, without logging. |
+| Classic standards | Removed from the run in `Push-CIPPStandardsList`, which sets the compare field to "License Missing: Not supported for USGovHigh tenants." (with `LicenseAvailable` false) and writes one log line per tenant per run. The existing `License Missing:` marker means alignment scoring, drift and the applied-standards page treat the row exactly like a missing licence: left out of the alignment score and counted in License Missing, not graded Non-Compliant. `Push-CIPPStandard` also skips listed standards, without logging. |
 | Baselines | The engine writes a `Skipped-Cloud` row with the reason before the licence check, and one log line per skipped standard per run, like a disabled standard. `Start-CIPPBaselineOrchestrator` is unchanged and does no cloud lookup. |
 | Alerts | Recorded as `Skipped` in the alert run history, the task moves to its next slot, and one log line is written per run. |
 | Tests | Removed from the suite, with one log line per tenant and suite run. |
