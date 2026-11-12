@@ -93,6 +93,8 @@ BeforeAll {
 }
 
 Describe 'Invoke-ExecAddTenant cloud environment' {
+    AfterAll { Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue }
+
     BeforeEach {
         $script:Written = [System.Collections.Generic.List[object]]::new()
         $script:ExistingTenant = $null
@@ -304,13 +306,15 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             $script:Written[0].directTenantUserPrincipalName | Should -Be 'admin@contoso.onmicrosoft.us'
         }
 
-        It 'rejects a refresh signed in to <TokenCloud> for a tenant stored as <Stored>, keeping the stored token' -TestCases @(
-            @{ Stored = 'USGovDoD'; TokenCloud = 'USGovHigh' }
-            @{ Stored = 'USGovHigh'; TokenCloud = 'Commercial' }
-            @{ Stored = 'Commercial'; TokenCloud = 'USGovHigh' }
-            @{ Stored = $null; TokenCloud = 'USGovHigh' }
+        It 'rejects a refresh signed in to <TokenCloud> for a tenant stored as <Stored> (partner <Partner>), keeping the stored token' -TestCases @(
+            @{ Stored = 'USGovDoD'; TokenCloud = 'USGovHigh'; Partner = $null; Remedy = 'change the tenant''s cloud environment first' }
+            @{ Stored = 'USGovHigh'; TokenCloud = 'Commercial'; Partner = $null; Remedy = 'remove the tenant and add it again in Commercial' }
+            @{ Stored = 'Commercial'; TokenCloud = 'USGovHigh'; Partner = $null; Remedy = 'remove the tenant and add it again in USGovHigh' }
+            @{ Stored = $null; TokenCloud = 'USGovHigh'; Partner = $null; Remedy = 'remove the tenant and add it again in USGovHigh' }
+            @{ Stored = $null; TokenCloud = 'USGovDoD'; Partner = 'USGovHigh'; Remedy = 'change the tenant''s cloud environment first' }
         ) {
-            param($Stored, $TokenCloud)
+            param($Stored, $TokenCloud, $Partner, $Remedy)
+            if ($Partner) { $env:CIPP_PARTNER_CLOUD = $Partner }
             $script:ExistingTenant = [pscustomobject]@{
                 PartitionKey = 'Tenants'; RowKey = $script:TenantId; customerId = $script:TenantId
                 displayName = 'Contoso'; defaultDomainName = 'contoso.us'; delegatedPrivilegeStatus = 'directTenant'
@@ -320,6 +324,7 @@ Describe 'Invoke-ExecAddTenant cloud environment' {
             $Response = Invoke-ExecAddTenant -Request (New-AddRequest -Cloud $TokenCloud)
 
             $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.message | Should -BeLike "*$Remedy*"
             $script:Written.Count | Should -Be 0
             # ExecUpdateRefreshToken refused this sign-in, so the stored token is the working one.
             Should -Invoke Remove-CIPPDirectTenantToken -Times 0

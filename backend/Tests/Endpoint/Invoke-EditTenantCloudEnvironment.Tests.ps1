@@ -34,6 +34,7 @@ BeforeAll {
     function New-GraphGetRequest { param($uri, $tenantid, $NoAuthCheck, $ErrorAction) }
     function Get-AzDataTableEntity { param($Context, $Filter) }
     function Clear-CippTokenCache { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/GraphHelper/Get-CIPPPartnerCloudEnvironment.ps1')
     function Add-AzDataTableEntity { param($Context, $Entity, [switch]$Force) }
 
     $script:OriginalRefreshToken = $env:RefreshToken
@@ -212,6 +213,27 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             $Response.Body.Results | Should -Match "remove the tenant and add it again, choosing $Value"
             Should -Invoke Add-CIPPAzDataTableEntity -Times 0
             Should -Invoke Clear-CippTokenCache -Times 0
+        }
+
+        Context 'with a government partner (CIPP_PARTNER_CLOUD)' {
+            AfterEach { Remove-Item env:CIPP_PARTNER_CLOUD -ErrorAction SilentlyContinue }
+
+            It 'treats a direct tenant with no stored cloud as the partner cloud: refuses Commercial' {
+                $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+                $script:Rows[0].PSObject.Properties.Remove('cloudEnvironment')
+                $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'Commercial')
+                $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+                $Response.Body.Results | Should -Match 'added in USGovHigh'
+                Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+            }
+
+            It 'treats a direct tenant with no stored cloud as the partner cloud: allows USGovDoD' {
+                $env:CIPP_PARTNER_CLOUD = 'USGovHigh'
+                $script:Rows[0].PSObject.Properties.Remove('cloudEnvironment')
+                $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovDoD')
+                $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+                $script:Written[0].cloudEnvironment | Should -BeExactly 'USGovDoD'
+            }
         }
 
         It 'refuses to move a direct tenant with no stored cloud (Commercial) to a government cloud' {
