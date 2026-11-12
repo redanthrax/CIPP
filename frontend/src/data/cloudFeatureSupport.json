@@ -40,6 +40,10 @@
     "copilot-admin": {
       "reason": "Uses the Microsoft 365 Copilot admin API (copilot/admin/settings, copilot/admin/policySettings, copilot/admin/catalog), which Microsoft Graph in GCC High does not have.",
       "evidence": "Live test 2026-11-11 on graph.microsoft.us: beta/copilot/admin/settings and beta/copilot/admin/catalog/packages returned 400 Resource not found for the segment 'admin'. DoD is listed because Microsoft 365 Copilot is not offered there either."
+    },
+    "cipp-schema-extension": {
+      "reason": "JIT Admin stores its state in CIPP's cippUser schema extension, which CIPP registers in the partner tenant with CIPP-SAM in the commercial cloud. That extension does not exist in Azure Government, so government tenants cannot read or write it.",
+      "evidence": "Live test 2026-11-11 on graph.microsoft.us: ListJITAdmin returned 500 Resource 'ext..._cippUser' does not exist. Get-CIPPSchemaExtensions only reads and creates extensions in the partner tenant's cloud."
     }
   },
   "pages": [
@@ -130,6 +134,15 @@
         "USGovDoD"
       ],
       "source": "copilot-admin"
+    },
+    {
+      "path": "/identity/administration/jit-admin",
+      "exact": true,
+      "unsupportedClouds": [
+        "USGovHigh",
+        "USGovDoD"
+      ],
+      "source": "cipp-schema-extension"
     }
   ],
   "actions": [

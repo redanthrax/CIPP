@@ -95,6 +95,26 @@ describe('getUnsupportedPage', () => {
     ).toBeUndefined()
   })
 
+  it('matches only the page itself for an exact entry', () => {
+    // JIT Admin is unsupported, its tenant-independent template pages are not
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin', 'USGovHigh')
+        ?.source
+    ).toEqual('cipp-schema-extension')
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin/', 'USGovDoD')
+        ?.source
+    ).toEqual('cipp-schema-extension')
+    for (const sub of ['templates', 'role-templates', 'requests', 'add']) {
+      expect(
+        getUnsupportedPage(`/identity/administration/jit-admin/${sub}`, 'USGovHigh')
+      ).toBeUndefined()
+    }
+    expect(
+      getUnsupportedPage('/identity/administration/jit-admin', 'Commercial')
+    ).toBeUndefined()
+  })
+
   it('blocks nothing for Commercial or an unknown cloud', () => {
     expect(
       getUnsupportedPage('/security/compliance/dlp', 'Commercial')

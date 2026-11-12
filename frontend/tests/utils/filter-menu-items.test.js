@@ -296,6 +296,7 @@ describe('filterMenuItems cloudEnvironment', () => {
           '/copilot/reports/copilot-adoption',
           '/copilot/reports/copilot-trend',
           '/copilot/reports/copilot-usage',
+          '/identity/administration/jit-admin',
           '/security/compliance/dlp',
           '/security/compliance/labels',
           '/security/compliance/retention',
