@@ -64,18 +64,18 @@ describe('CippAppRegistrationPermissions tenant for permission names', () => {
       data: { Id: 'sp-graph' },
       queryKey: `execSP-appreg-perms-sp-graph-${GRAPH}`,
     })
-    expect(all.every((c) => !('tenantFilter' in c.data))).toBe(true)
+    expect(all.every((c) => !('tenantFilter' in c.data) && !('GovernmentTenantFilter' in c.data))).toBe(true)
   })
 
   it('reads the service principals of a government tenant from that tenant', () => {
     renderFor('gov.us')
     const all = calls()
     expect(all).toContainEqual({
-      data: { Select: 'appId,displayName,id', tenantFilter: 'gov.us' },
+      data: { Select: 'appId,displayName,id', GovernmentTenantFilter: 'gov.us' },
       queryKey: 'execServicePrincipalList-app-registration-permissions-gov.us',
     })
     expect(all).toContainEqual({
-      data: { Id: 'sp-graph', tenantFilter: 'gov.us' },
+      data: { Id: 'sp-graph', GovernmentTenantFilter: 'gov.us' },
       queryKey: `execSP-appreg-perms-sp-graph-${GRAPH}-gov.us`,
     })
   })

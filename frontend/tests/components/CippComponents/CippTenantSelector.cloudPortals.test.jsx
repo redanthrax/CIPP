@@ -130,13 +130,10 @@ describe('CippTenantSelector portal links by cloud', () => {
     expect(await hrefOf('Security Portal')).toBe(
       'https://security.microsoft.us/?tid=11111111-aaaa-bbbb-cccc-000000000001'
     )
-    for (const label of [
-      'M365 Admin Portal',
-      'Exchange Portal',
-      'Teams Portal',
-      'Purview Portal',
-      'Power BI Portal',
-    ]) {
+    expect(await hrefOf('Purview Portal')).toBe(
+      'https://purview.microsoft.us/?tid=11111111-aaaa-bbbb-cccc-000000000001'
+    )
+    for (const label of ['M365 Admin Portal', 'Exchange Portal', 'Teams Portal', 'Power BI Portal']) {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     }
     expect(screen.getByText('Manage Tenant')).toBeInTheDocument()

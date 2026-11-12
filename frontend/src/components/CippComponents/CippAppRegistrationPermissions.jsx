@@ -112,7 +112,7 @@ const ResourcePermissionsAccordion = ({
   const { data, isFetching, isLoading } = ApiGetCall({
     url: "/api/ExecServicePrincipals",
     data: governmentTenant
-      ? { Id: servicePrincipalObjectId, tenantFilter: governmentTenant }
+      ? { Id: servicePrincipalObjectId, GovernmentTenantFilter: governmentTenant }
       : { Id: servicePrincipalObjectId },
     queryKey: governmentTenant
       ? `execSP-appreg-perms-${servicePrincipalObjectId}-${resourceAppId}-${governmentTenant}`
@@ -307,7 +307,7 @@ const CippAppRegistrationPermissions = ({ requiredResourceAccess, tenantFilter }
   } = ApiGetCall({
     url: "/api/ExecServicePrincipals",
     data: governmentTenant
-      ? { Select: "appId,displayName,id", tenantFilter: governmentTenant }
+      ? { Select: "appId,displayName,id", GovernmentTenantFilter: governmentTenant }
       : { Select: "appId,displayName,id" },
     queryKey: governmentTenant
       ? `execServicePrincipalList-app-registration-permissions-${governmentTenant}`

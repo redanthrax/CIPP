@@ -53,7 +53,8 @@ Describe 'Invoke-ListTenants portal columns' {
         $Gov.portal_intune | Should -BeExactly 'https://intune.microsoft.us/gov.us'
         $Gov.portal_security | Should -BeExactly 'https://security.microsoft.us/?tid=g1'
         $Gov.portal_platform | Should -BeExactly 'https://high.admin.powerplatform.microsoft.us/account/login/g1'
-        foreach ($Name in 'portal_m365', 'portal_exchange', 'portal_teams', 'portal_compliance', 'portal_bi') { $Gov.$Name | Should -BeNullOrEmpty -Because $Name }
+        $Gov.portal_compliance | Should -BeExactly 'https://purview.microsoft.us/?tid=g1'
+        foreach ($Name in 'portal_m365', 'portal_exchange', 'portal_teams', 'portal_bi') { $Gov.$Name | Should -BeNullOrEmpty -Because $Name }
         $Gov.portal_sharepoint | Should -BeExactly '/api/ListSharePointAdminUrl?tenantFilter=gov.us'
     }
 }

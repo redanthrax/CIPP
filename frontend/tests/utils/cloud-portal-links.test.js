@@ -45,10 +45,12 @@ describe('getCloudPortalUrl', () => {
     expect(getCloudPortalUrl('https://admin.powerplatform.microsoft.com/account/login/g1', 'USGovDoD')).toBe(
       'https://admin.appsplatform.us/account/login/g1'
     )
+    expect(getCloudPortalUrl('https://purview.microsoft.com/?tid=g1', 'USGovHigh')).toBe('https://purview.microsoft.us/?tid=g1')
+    expect(getCloudPortalUrl('https://purview.microsoft.com/?tid=g1', 'USGovDoD')).toBe('https://purview.apps.mil/?tid=g1')
   })
 
   it('drops portals with no documented government URL', () => {
-    for (const url of [links[0], links[1], links[3], links[7], links[9]]) {
+    for (const url of [links[0], links[1], links[3], links[9]]) {
       expect(getCloudPortalUrl(url, 'USGovHigh')).toBeUndefined()
       expect(getCloudPortalUrl(url, 'USGovDoD')).toBeUndefined()
     }
