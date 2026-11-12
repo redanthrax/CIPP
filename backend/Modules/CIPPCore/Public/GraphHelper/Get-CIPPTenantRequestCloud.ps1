@@ -53,6 +53,15 @@ function Get-CIPPTenantRequestCloud {
     $Cloud = (Get-CIPPCloudEndpoint -CloudEnvironment $Cloud).CloudEnvironment
 
     if ($MarkerKey) {
+        # Same rule as Get-GraphToken: the first time this worker sees the tenant in a government cloud, drop
+        # its cached tokens, which may be commercial ones minted before the cloud changed in another worker.
+        # Commercial answers do nothing here: Get-GraphToken clears the 'seen' entry when it mints a commercial token.
+        if ($Cloud -cne 'Commercial') {
+            $SeenKey = [CIPP.CIPPTokenCache]::BuildKey($TenantId, 'cipp-cloud-environment', $false, '', 'seen')
+            $Seen = [CIPP.CIPPTokenCache]::Lookup($SeenKey, 0)
+            if (-not ($Seen.Found -and $Seen.TokenPayloadJson -ceq $Cloud)) { $null = [CIPP.CIPPTokenCache]::RemoveByTenant($TenantId) }
+            [CIPP.CIPPTokenCache]::Store($SeenKey, $Cloud, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 86400)
+        }
         [CIPP.CIPPTokenCache]::Store($MarkerKey, $Cloud, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
     }
     return $Cloud

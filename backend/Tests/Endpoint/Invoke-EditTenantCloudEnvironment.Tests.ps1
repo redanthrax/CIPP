@@ -175,6 +175,38 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
         }
     }
 
+    Context 'government direct tenant to Commercial (redanthrax/CIPP#3)' {
+        BeforeEach {
+            $script:Rows[0] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'USGovHigh' -Force
+        }
+
+        It 'refuses to mark a government direct tenant Commercial, writing nothing' {
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'Commercial')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.Results | Should -Match 'remove the tenant and add it again'
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+            Should -Invoke Clear-CippTokenCache -Times 0
+        }
+
+        It 'still moves a government direct tenant between government clouds' {
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovDoD')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'USGovDoD'
+        }
+
+        It 'still lets a non-direct tenant marked government go back to Commercial' {
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId $script:FabrikamId -CloudEnvironment 'Commercial')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'Commercial'
+        }
+
+        It 'still lets a Commercial direct tenant be set to Commercial' {
+            $script:Rows[0] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'Commercial' -Force
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'Commercial')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+        }
+    }
+
     Context 'invalid input' {
         It 'returns 400 for cloudEnvironment <Name>' -TestCases @(
             @{ Name = 'null'; Value = $null }
