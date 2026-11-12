@@ -44,12 +44,14 @@ export const isCloudSupported = (type, name, cloud) =>
 
 // A page and the pages under it share its entry: /teams-share/teams/business-voice also covers
 // /teams-share/teams/business-voice/<anything>, but not /teams-share/teams/business-voice-x.
+// An entry with `exact: true` covers only that page, not the pages under it.
 export const getUnsupportedPage = (pathname, cloud) => {
   if (!pathname || !cloud || cloud === 'Commercial') return undefined
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
   for (const [pagePath, entry] of index.pages) {
     if (
-      (path === pagePath || path.startsWith(`${pagePath}/`)) &&
+      (path === pagePath ||
+        (!entry.exact && path.startsWith(`${pagePath}/`))) &&
       entry.unsupportedClouds.includes(cloud)
     ) {
       return getCloudSupportEntry('pages', pagePath)

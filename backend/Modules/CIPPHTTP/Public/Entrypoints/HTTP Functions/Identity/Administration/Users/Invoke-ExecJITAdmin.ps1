@@ -46,6 +46,15 @@ function Invoke-ExecJITAdmin {
 
     $TenantFilter = $Request.Body.tenantFilter.value ? $Request.Body.tenantFilter.value : $Request.Body.tenantFilter
 
+    # A government tenant of a commercial partner has no cippUser extension (redanthrax/CIPP#4)
+    $CloudError = Get-CIPPJITAdminCloudError -TenantFilter $TenantFilter
+    if ($CloudError) {
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $CloudError -Sev 'Error'
+        return ([HttpResponseContext]@{
+                StatusCode = [HttpStatusCode]::BadRequest
+                Body       = @{ 'Results' = @($CloudError) }
+            })
+    }
 
     $Start = ([System.DateTimeOffset]::FromUnixTimeSeconds($Request.Body.StartDate)).DateTime.ToLocalTime()
     $Expiration = ([System.DateTimeOffset]::FromUnixTimeSeconds($Request.Body.EndDate)).DateTime.ToLocalTime()
