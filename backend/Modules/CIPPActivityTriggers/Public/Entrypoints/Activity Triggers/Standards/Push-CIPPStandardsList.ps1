@@ -34,7 +34,9 @@ function Push-CIPPStandardsList {
         }
 
         # Standards the tenant's cloud does not support (redanthrax/CIPP#4): one log line per run, nothing
-        # queued. Commercial tenants stop at the cloud check.
+        # queued. Commercial tenants stop at the cloud check. The compare field carries the existing
+        # 'License Missing:' marker so alignment scoring and the UI leave the row out of the score exactly as
+        # they do for a missing licence, instead of grading it Non-Compliant.
         $TenantCloud = try { Get-CIPPTenantRequestCloud -TenantFilter $TenantFilter } catch { $null }
         if ($TenantCloud -and $TenantCloud -cne 'Commercial') {
             $CloudSkipped = @($ComputedStandards.Keys | Where-Object { -not (Test-CIPPCloudFeatureSupport -Type 'standards' -Name ($_ -split '\|', 2)[0] -CloudEnvironment $TenantCloud) })
@@ -44,8 +46,9 @@ function Push-CIPPStandardsList {
                 $CloudFields = [System.Collections.Generic.List[object]]::new()
                 foreach ($Name in $SkippedNames) {
                     $CloudFields.Add([PSCustomObject]@{
-                            FieldName  = "standards.$Name"
-                            FieldValue = "Not supported for $TenantCloud tenants."
+                            FieldName        = "standards.$Name"
+                            FieldValue       = "License Missing: Not supported for $TenantCloud tenants."
+                            LicenseAvailable = $false
                         })
                 }
                 Set-CIPPStandardsCompareField -TenantFilter $TenantFilter -BulkFields $CloudFields

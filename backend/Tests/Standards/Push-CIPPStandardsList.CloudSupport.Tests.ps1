@@ -55,7 +55,7 @@ Describe 'Push-CIPPStandardsList cloud support' {
         Should -Invoke Write-LogMessage -Times 1 -Exactly -ParameterFilter { $sev -eq 'Info' -and $message -like '*2 standard(s) not supported for USGovHigh*SharePointMassDeletionAlert, TeamsGuestAccess*' }
         Should -Invoke Set-CIPPStandardsCompareField -Times 1 -Exactly -ParameterFilter {
             @($BulkFields.FieldName | Sort-Object) -join ',' -eq 'standards.SharePointMassDeletionAlert,standards.TeamsGuestAccess' -and
-            @($BulkFields | Where-Object { $_.FieldValue -ne 'Not supported for USGovHigh tenants.' }).Count -eq 0
+            @($BulkFields | Where-Object { $_.FieldValue -cne 'License Missing: Not supported for USGovHigh tenants.' -or $_.LicenseAvailable -ne $false }).Count -eq 0
         }
     }
 }
