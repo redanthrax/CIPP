@@ -62,6 +62,16 @@ Describe 'New-GraphPOSTRequest MAA detection' {
         Should -Invoke New-CIPPIntuneApprovalRequest -Times 0 -Exactly
     }
 
+    It 'hands a government tenant''s refused write over with the caller''s URI, which the retry routes again (redanthrax/CIPP#3)' {
+        Mock Get-CIPPTenantRequestCloud { 'USGovHigh' }
+        Mock Invoke-CIPPRestMethod { throw "Header 'x-msft-approval-justification' is required to request approval" }
+
+        New-GraphPOSTRequest -uri $script:CreateUri -tenantid $script:Tenant -body $script:Body | Should -Be 'raised'
+        Should -Invoke Invoke-CIPPRestMethod -ParameterFilter { $Uri -like 'https://graph.microsoft.us/*' }
+        Should -Invoke Invoke-CIPPRestMethod -Times 0 -Exactly -ParameterFilter { $Uri -like 'https://graph.microsoft.com/*' }
+        Should -Invoke New-CIPPIntuneApprovalRequest -Times 1 -Exactly -ParameterFilter { $Uri -eq $script:CreateUri }
+    }
+
     It 'does not loop when the justification was already sent' {
         Mock Invoke-CIPPRestMethod { throw "Header 'x-msft-approval-justification' is required to request approval" }
         { New-GraphPOSTRequest -uri $script:CreateUri -tenantid $script:Tenant -body $script:Body -AddedHeaders @{ 'x-msft-approval-justification' = 'eA==' } } | Should -Throw

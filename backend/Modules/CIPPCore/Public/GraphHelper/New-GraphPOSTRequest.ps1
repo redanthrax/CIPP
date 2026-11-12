@@ -45,6 +45,8 @@ function New-GraphPOSTRequest {
         }
 
         # A government tenant's requests go to its cloud's hosts (redanthrax/CIPP#3); commercial URIs are unchanged.
+        # The caller's URI is kept for the Intune approval hand-off below, which re-enters this helper and routes again.
+        $CallerUri = $uri
         $RequestCloud = Get-CIPPTenantRequestCloud -TenantFilter $tenantid
         if ($RequestCloud -cne 'Commercial') { $uri = ConvertTo-CIPPCloudUri -Uri $uri -CloudEnvironment $RequestCloud }
         # A government tenant's token is fetched again for exactly the cloud chosen above: the first call can
@@ -172,7 +174,7 @@ function New-GraphPOSTRequest {
         # nothing. Raise the request app-only - one raised with the GDAP token has no requestor and can
         # never be completed. Tenants without approval never see this error.
         if (-not $RequestSuccessful -and "$Message $RawErrorBody" -match 'x-msft-approval-justification\S{0,6} is required' -and -not $AddedHeaders.'x-msft-approval-justification') {
-            return New-CIPPIntuneApprovalRequest -TenantFilter $tenantid -Uri $uri -Type $type -Body $body -Justification $ApprovalJustification -AssignParams $ApprovalAssignParams
+            return New-CIPPIntuneApprovalRequest -TenantFilter $tenantid -Uri $CallerUri -Type $type -Body $body -Justification $ApprovalJustification -AssignParams $ApprovalAssignParams
         }
 
         if ($RequestSuccessful -eq $false) {
