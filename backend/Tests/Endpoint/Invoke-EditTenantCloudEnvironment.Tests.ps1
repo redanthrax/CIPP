@@ -78,7 +78,7 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             [pscustomobject]@{
                 PartitionKey = 'Tenants'; RowKey = $script:ContosoId; customerId = $script:ContosoId
                 displayName = 'Contoso'; defaultDomainName = 'contoso.com'; initialDomainName = 'contoso.onmicrosoft.com'
-                delegatedPrivilegeStatus = 'directTenant'; Excluded = $false; RequiresRefresh = $false; LastRefresh = [datetime]'2026-01-01'
+                delegatedPrivilegeStatus = 'granularDelegatedAdminPrivileges'; Excluded = $false; RequiresRefresh = $false; LastRefresh = [datetime]'2026-01-01'
             }
             [pscustomobject]@{
                 PartitionKey = 'Tenants'; RowKey = $script:FabrikamId; customerId = $script:FabrikamId
@@ -177,6 +177,7 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
 
     Context 'government direct tenant to Commercial (redanthrax/CIPP#3)' {
         BeforeEach {
+            $script:Rows[0].delegatedPrivilegeStatus = 'directTenant'
             $script:Rows[0] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'USGovHigh' -Force
         }
 
@@ -200,10 +201,40 @@ Describe 'Invoke-EditTenantCloudEnvironment' {
             $script:Written[0].cloudEnvironment | Should -BeExactly 'Commercial'
         }
 
+        It 'refuses to move a Commercial direct tenant to <Value>, writing nothing' -TestCases @(
+            @{ Value = 'USGovHigh' }
+            @{ Value = 'USGovDoD' }
+        ) {
+            param($Value)
+            $script:Rows[0] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'Commercial' -Force
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment $Value)
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            $Response.Body.Results | Should -Match "remove the tenant and add it again, choosing $Value"
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+            Should -Invoke Clear-CippTokenCache -Times 0
+        }
+
+        It 'refuses to move a direct tenant with no stored cloud (Commercial) to a government cloud' {
+            $script:Rows[0].PSObject.Properties.Remove('cloudEnvironment')
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'USGovHigh')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::BadRequest)
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0
+        }
+
+        It 'still lets a non-direct Commercial tenant be marked government' {
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId $script:FabrikamId -CloudEnvironment 'Commercial')
+            $script:Written.Clear()
+            $script:Rows[1] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'Commercial' -Force
+            $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CustomerId $script:FabrikamId -CloudEnvironment 'USGovHigh')
+            $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'USGovHigh'
+        }
+
         It 'still lets a Commercial direct tenant be set to Commercial' {
             $script:Rows[0] | Add-Member -NotePropertyName cloudEnvironment -NotePropertyValue 'Commercial' -Force
             $Response = Invoke-EditTenantCloudEnvironment -Request (New-CloudRequest -CloudEnvironment 'Commercial')
             $Response.StatusCode | Should -Be ([HttpStatusCode]::OK)
+            $script:Written[0].cloudEnvironment | Should -BeExactly 'Commercial'
         }
     }
 
