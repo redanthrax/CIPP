@@ -138,7 +138,12 @@ function Get-GraphToken {
         #get directtenants directly from table, avoid get-tenants due to performance issues
         $TenantsTable = Get-CippTable -tablename 'Tenants'
         $Filter = "PartitionKey eq 'Tenants' and delegatedPrivilegeStatus eq 'directTenant'"
-        $ClientType = Get-CIPPAzDataTableEntity @TenantsTable -Filter $Filter | Where-Object { $_.customerId -eq $tenantid -or $_.defaultDomainName -eq $tenantid }
+        $DirectTenantRows = Get-CIPPAzDataTableEntity @TenantsTable -Filter $Filter
+        $ClientType = $DirectTenantRows | Where-Object { $_.customerId -eq $tenantid -or $_.defaultDomainName -eq $tenantid }
+        # A government direct tenant may also be addressed by its initialDomainName (e.g. contoso.onmicrosoft.us).
+        # Only when nothing else matched, and only for a non-Commercial row, so commercial lookups are unchanged.
+        # Same rule as Get-CIPPTenantRequestCloud, so the token and the API host agree (redanthrax/CIPP#2, #3).
+        if (-not $ClientType) { $ClientType = $DirectTenantRows | Where-Object { $_.initialDomainName -and $_.initialDomainName -eq $tenantid -and $_.cloudEnvironment -and $_.cloudEnvironment -cne 'Commercial' } }
         if ($tenantid -ne $env:TenantID -and $clientType.delegatedPrivilegeStatus -eq 'directTenant') {
             Write-Host "Using direct tenant refresh token for $($clientType.customerId)"
             $ClientRefreshToken = Get-Item -Path "env:\$($clientType.customerId)" -ErrorAction SilentlyContinue

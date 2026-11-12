@@ -39,12 +39,14 @@ function Get-CIPPTenantRequestCloud {
         }
     }
 
-    # Same lookup as Get-GraphToken: direct tenants by customerId or defaultDomainName.
+    # Same lookup as Get-GraphToken: direct tenants by customerId or defaultDomainName, then a government
+    # (non-Commercial) direct tenant by initialDomainName.
     $Cloud = Get-CIPPPartnerCloudEnvironment
     if ($TenantId -ne $env:TenantID) {
         $TenantsTable = Get-CippTable -tablename 'Tenants'
-        $DirectTenant = Get-CIPPAzDataTableEntity @TenantsTable -Filter "PartitionKey eq 'Tenants' and delegatedPrivilegeStatus eq 'directTenant'" |
-            Where-Object { $_.customerId -eq $TenantId -or $_.defaultDomainName -eq $TenantId } | Select-Object -First 1
+        $DirectTenantRows = Get-CIPPAzDataTableEntity @TenantsTable -Filter "PartitionKey eq 'Tenants' and delegatedPrivilegeStatus eq 'directTenant'"
+        $DirectTenant = $DirectTenantRows | Where-Object { $_.customerId -eq $TenantId -or $_.defaultDomainName -eq $TenantId } | Select-Object -First 1
+        if (-not $DirectTenant) { $DirectTenant = $DirectTenantRows | Where-Object { $_.initialDomainName -and $_.initialDomainName -eq $TenantId -and $_.cloudEnvironment -and $_.cloudEnvironment -cne 'Commercial' } | Select-Object -First 1 }
         $StoredCloud = [string]$DirectTenant.cloudEnvironment
         if ($DirectTenant -and -not [string]::IsNullOrEmpty($StoredCloud)) { $Cloud = $StoredCloud }
     }
