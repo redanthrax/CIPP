@@ -291,6 +291,8 @@ describe('filterMenuItems cloudEnvironment', () => {
       const hidden = all.filter((path) => !gov.includes(path))
       expect(hidden.sort()).toEqual(
         [
+          '/copilot/agent365/packages',
+          '/copilot/settings',
           '/copilot/reports/copilot-adoption',
           '/copilot/reports/copilot-trend',
           '/copilot/reports/copilot-usage',
