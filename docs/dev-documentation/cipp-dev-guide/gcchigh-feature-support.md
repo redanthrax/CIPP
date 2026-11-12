@@ -49,7 +49,7 @@ Microsoft 365 usage reports are not gated. On 2026-11-11, with `Reports.Read.All
 * **Tabs.** `TabbedLayout` leaves out a tab whose page the matrix lists for the selected tenant's cloud (the JIT Admins tab); Commercial and AllTenants get the same tab list.
 * **Direct URL.** `Layout` shows "Not available for GCC High tenants" with the matrix reason instead of rendering the page. The page's own API calls never run.
 * **Actions.** `CippDataTable` and `HeaderedTabbedLayout` drop actions whose `url` is listed.
-* **Standards and baselines pickers.** A listed standard keeps its place in the picker and shows a "Not supported in GCC High" chip with a tooltip. Templates apply to many tenants, so the standard is still applied to commercial tenants. The chip only appears when the tenant list contains a tenant in that cloud.
+* **Standards and baselines pickers.** A listed standard keeps its place in the picker and shows a "Not supported in GCC High" chip with a tooltip: in the classic standards dialog, in both views of the baseline "Add Standards to Stage" catalog, and on a staged baseline standard's header (visible while collapsed). Templates apply to many tenants, so the standard is still applied to commercial tenants. The chip only appears when the tenant list contains a tenant in that cloud.
 
 ## Backend
 
@@ -90,4 +90,4 @@ In the UI, AllTenants has no single cloud, so nothing is hidden and no page is b
 ## Testing
 
 * Pester: `Static/CloudFeatureSupportSync`, `GraphHelper/Test-CIPPCloudFeatureSupport`, `Private/JITAdmin.CloudSupport`, `Build/New-CippGovAppPermissions`, and the `*.CloudSupport` / `BaselineEngineCloudSupport` tests. Each one checks that a Commercial tenant takes the unchanged path and that a government tenant is skipped with one log line.
-* Vitest: `tests/hooks/use-tenant-cloud.test.jsx`, `tests/utils/cloud-feature-support.test.js`, the `cloudEnvironment` cases in `tests/utils/filter-menu-items.test.js`, and `tests/components/CippComponents/CippCloudSupportChip.test.jsx`.
+* Vitest: `tests/hooks/use-tenant-cloud.test.jsx`, `tests/utils/cloud-feature-support.test.js`, the `cloudEnvironment` cases in `tests/utils/filter-menu-items.test.js`, `tests/components/CippComponents/CippCloudSupportChip.test.jsx` and `tests/components/CippBaselines/CippBaselineCloudSupportChip.test.jsx`.
