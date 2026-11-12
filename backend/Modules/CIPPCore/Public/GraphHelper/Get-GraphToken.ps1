@@ -252,10 +252,19 @@ function Get-GraphToken {
             # and pair this token with another cloud's host (redanthrax/CIPP#3).
             if ($null -ne ('CIPP.CIPPTokenCache' -as [type])) {
                 if (-not $CloudMarkerKey) { $CloudMarkerKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'marker') }
+                # The cloud this worker last routed the tenant to. The cache is per worker, so after the tenant's
+                # cloud changes in another worker this one can still hold tokens from the old cloud, and the
+                # commercial key above is checked first. The first time a tenant is seen in a cloud, drop its
+                # cached tokens so none can be paired with the new cloud's hosts (redanthrax/CIPP#3).
+                $CloudSeenKey = [CIPP.CIPPTokenCache]::BuildKey([string]$tenantid, 'cipp-cloud-environment', $false, '', 'seen')
                 if ($CloudRoute) {
+                    $CloudSeen = [CIPP.CIPPTokenCache]::Lookup($CloudSeenKey, 0)
+                    if (-not ($CloudSeen.Found -and $CloudSeen.TokenPayloadJson -ceq $CloudRoute.CloudEnvironment)) { $null = [CIPP.CIPPTokenCache]::RemoveByTenant([string]$tenantid) }
+                    [CIPP.CIPPTokenCache]::Store($CloudSeenKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 86400)
                     [CIPP.CIPPTokenCache]::Store($CloudMarkerKey, $CloudRoute.CloudEnvironment, [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 900)
                 } else {
                     [CIPP.CIPPTokenCache]::Remove($CloudMarkerKey)
+                    [CIPP.CIPPTokenCache]::Remove($CloudSeenKey)
                 }
             }
         } elseif ($AuthBody.grant_type -eq 'refresh_token') {

@@ -64,6 +64,15 @@ function Invoke-EditTenantCloudEnvironment {
         if (-not $Entity) { throw "Tenant row for $($Tenant.customerId) not found" }
 
         $Previous = if ($Entity.cloudEnvironment) { $Entity.cloudEnvironment } else { 'Commercial' }
+        # A direct tenant's stored refresh token was issued by its government cloud's authority. Marked
+        # Commercial, CIPP would send that token to login.microsoftonline.com. Refuse; the tenant has to be
+        # removed and added again in the commercial cloud, which stores a commercial token (redanthrax/CIPP#3).
+        if ($Entity.delegatedPrivilegeStatus -eq 'directTenant' -and $Previous -cne 'Commercial' -and $CloudEnvironment -ceq 'Commercial') {
+            return ([HttpResponseContext]@{
+                    StatusCode = [HttpStatusCode]::BadRequest
+                    Body       = @{ Results = "$($Tenant.displayName) is a direct tenant added in $Previous, and its stored sign-in can only be used there. To move it to Commercial, remove the tenant and add it again, signing in to the commercial cloud." }
+                })
+        }
         $Entity | Add-Member -NotePropertyName 'cloudEnvironment' -NotePropertyValue $CloudEnvironment -Force
         Add-CIPPAzDataTableEntity @TenantsTable -Entity $Entity -Force | Out-Null
         # Tokens are routed by cloud (redanthrax/CIPP#2): drop this tenant's cached tokens and cloud marker
