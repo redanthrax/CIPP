@@ -56,7 +56,10 @@ function Invoke-ExecUpdateRefreshToken {
                 $StoredCloud = if ($ExistingDirect.cloudEnvironment) { [string]$ExistingDirect.cloudEnvironment } else { Get-CIPPPartnerCloudEnvironment }
                 $SignIn = Resolve-CIPPSignInCloud -CloudEnvironment $Request.Body.cloudEnvironment -AccessToken ([string]$Request.Body.accessToken)
                 if ($SignIn.CloudEnvironment -cne $StoredCloud) {
-                    throw "The sign-in was for $($SignIn.CloudEnvironment) but the tenant is stored as $StoredCloud. Sign in again choosing $StoredCloud, or change the tenant's cloud environment first."
+                    # USGovHigh and USGovDoD share an authority, so the stored cloud can be changed between them; a move
+                    # between Commercial and government needs the tenant removed and added again (redanthrax/CIPP#3).
+                    $Remedy = if ($SignIn.CloudEnvironment -cne 'Commercial' -and $StoredCloud -cne 'Commercial') { "or change the tenant's cloud environment first" } else { "or remove the tenant and add it again in $($SignIn.CloudEnvironment)" }
+                    throw "The sign-in was for $($SignIn.CloudEnvironment) but the tenant is stored as $StoredCloud. Sign in again choosing $StoredCloud, $Remedy."
                 }
                 $Parts = ([string]$Request.Body.accessToken) -split '\.'
                 $Payload = $Parts[1].Replace('-', '+').Replace('_', '/')

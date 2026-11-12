@@ -82,7 +82,7 @@ If the Azure Government app is not configured, government tenants fail with "Azu
 
 GDAP does not work across clouds, so your partner tenant, every GDAP tenant and CIPP-SAM are always in the same cloud. CIPP assumes that is the commercial cloud. If your partner tenant is in GCC High or DoD, set the Function App application setting `CIPP_PARTNER_CLOUD` to `USGovHigh` or `USGovDoD` (exact case) and restart the app. Leave it unset, or set it to `Commercial`, otherwise. Any other value stops CIPP from requesting tokens until it is corrected.
 
-Tenants that already have a cloud stored keep it. To change one, use **Set Cloud Environment** on the tenants page (Tenant Administration > Tenants). A direct tenant added in GCC High or DoD cannot be set to Commercial this way: its stored sign-in was issued by the government cloud and only works there. Remove the tenant and add it again as Commercial instead. Moving a direct tenant between GCC High and DoD is allowed.
+Tenants that already have a cloud stored keep it. To change one, use **Set Cloud Environment** on the tenants page (Tenant Administration > Tenants). A direct tenant cannot be moved between Commercial and GCC High or DoD this way, in either direction: its stored sign-in was issued by the cloud it was added in and only works there. Remove the tenant and add it again in the new cloud instead. Moving a direct tenant between GCC High and DoD is allowed, because they share a sign-in authority. Tenants that are not direct tenants can be changed freely.
 
 ## Portal links
 
