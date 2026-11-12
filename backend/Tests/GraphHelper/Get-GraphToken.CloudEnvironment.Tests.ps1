@@ -62,8 +62,8 @@ Describe 'Get-GraphToken cloud routing' {
         Mock Get-CIPPAzDataTableEntity {
             if ($Filter -like '*directTenant*') {
                 return @(
-                    [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.us'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
-                    [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.com'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
+                    [pscustomobject]@{ customerId = $script:GovTenant; defaultDomainName = 'gov.us'; initialDomainName = 'gov.onmicrosoft.us'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = $script:GovCloud }
+                    [pscustomobject]@{ customerId = $script:ComTenant; defaultDomainName = 'com.com'; initialDomainName = 'com.onmicrosoft.com'; delegatedPrivilegeStatus = 'directTenant'; cloudEnvironment = 'Commercial' }
                 )
             }
             return $null
@@ -92,6 +92,30 @@ Describe 'Get-GraphToken cloud routing' {
                 $Body.scope -eq 'https://graph.microsoft.com/.default' -and $Body.refresh_token -eq 'com-tenant-refresh-token'
             }
             Should -Invoke Get-CIPPGovAppCredential -Times 0
+        }
+
+        It 'keeps a commercial direct tenant addressed by its initial domain on the pre-#2 path (partner token, as before)' {
+            $null = Get-GraphToken -tenantid 'com.onmicrosoft.com'
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://login.microsoftonline.com/com.onmicrosoft.com/oauth2/v2.0/token' -and
+                $Body.client_id -eq 'sam-app-id' -and $Body.refresh_token -eq 'partner-refresh-token' -and
+                $Body.scope -eq 'https://graph.microsoft.com/.default'
+            }
+            Should -Invoke Get-CIPPGovAppCredential -Times 0
+        }
+
+        It 'resolves a government direct tenant addressed by its initial domain to its own cloud and token (redanthrax/CIPP#2, #3)' {
+            $Result = Get-GraphToken -tenantid 'gov.onmicrosoft.us'
+
+            $Result.Authorization | Should -Be "Bearer token-for-$($script:GovAppId)"
+            Should -Invoke Invoke-CIPPRestMethod -Times 1 -Exactly -ParameterFilter {
+                $Uri -eq 'https://login.microsoftonline.us/gov.onmicrosoft.us/oauth2/v2.0/token' -and
+                $Body.client_id -eq $script:GovAppId -and $Body.refresh_token -eq 'gov-tenant-refresh-token' -and
+                $Body.scope -eq 'https://graph.microsoft.us/.default'
+            }
+            # The marker it leaves is the one Get-CIPPTenantRequestCloud reads, so the API host agrees.
+            $MarkerKey = [CIPP.CIPPTokenCache]::BuildKey('gov.onmicrosoft.us', 'cipp-cloud-environment', $false, '', 'marker')
+            [CIPP.CIPPTokenCache]::Lookup($MarkerKey, 0).TokenPayloadJson | Should -BeExactly 'USGovHigh'
         }
 
         It 'keeps GDAP and partner tokens on the pre-#2 path, scope untouched' {
