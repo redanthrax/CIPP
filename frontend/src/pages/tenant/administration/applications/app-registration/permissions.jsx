@@ -148,7 +148,10 @@ const Page = () => {
       {appRequest.isSuccess && appData && (
         <Box sx={{ flexGrow: 1, py: 4 }}>
           <CippHead title={`${title} — API permissions`} />
-          <CippAppRegistrationPermissions requiredResourceAccess={appData.requiredResourceAccess} />
+          <CippAppRegistrationPermissions
+            requiredResourceAccess={appData.requiredResourceAccess}
+            tenantFilter={router.query.tenantFilter ?? userSettingsDefaults.currentTenant}
+          />
         </Box>
       )}
     </HeaderedTabbedLayout>
