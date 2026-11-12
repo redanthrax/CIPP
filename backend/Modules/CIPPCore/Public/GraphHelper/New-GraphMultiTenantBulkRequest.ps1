@@ -39,6 +39,9 @@ function New-GraphMultiTenantBulkRequest {
             # Each tenant's batch goes to its own cloud's Graph host (redanthrax/CIPP#3).
             $TenantCloud = Get-CIPPTenantRequestCloud -TenantFilter $Item.TenantFilter
             $TenantUrl = if ($TenantCloud -ceq 'Commercial') { $Url } else { ConvertTo-CIPPCloudUri -Uri $Url -CloudEnvironment $TenantCloud }
+            # A government tenant's token is fetched again for exactly the cloud chosen above: the first call can
+            # return a commercial token cached before the tenant's cloud changed in another worker (redanthrax/CIPP#3).
+            if ($TenantCloud -cne 'Commercial') { $Authorization = (Get-GraphToken -tenantid $Item.TenantFilter -scope $Scope -AsApp $AsApp -RequireCloud $TenantCloud).Authorization }
         } catch {
             $Result.Error = $_.Exception.Message
             continue
