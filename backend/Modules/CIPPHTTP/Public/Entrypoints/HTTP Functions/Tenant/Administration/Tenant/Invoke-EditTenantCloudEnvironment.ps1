@@ -63,7 +63,9 @@ function Invoke-EditTenantCloudEnvironment {
         $Entity = Get-CIPPAzDataTableEntity @TenantsTable -Filter "PartitionKey eq 'Tenants' and RowKey eq '$(ConvertTo-CIPPODataFilterValue -Value $Tenant.customerId)'"
         if (-not $Entity) { throw "Tenant row for $($Tenant.customerId) not found" }
 
-        $Previous = if ($Entity.cloudEnvironment) { $Entity.cloudEnvironment } else { 'Commercial' }
+        # A row with no stored cloud is in the partner cloud, the same default Get-Tenants and the token
+        # routing use; with CIPP_PARTNER_CLOUD unset that is Commercial (redanthrax/CIPP#3).
+        $Previous = if ($Entity.cloudEnvironment) { [string]$Entity.cloudEnvironment } elseif ([string]::IsNullOrEmpty($env:CIPP_PARTNER_CLOUD)) { 'Commercial' } else { Get-CIPPPartnerCloudEnvironment }
         # A direct tenant's stored refresh token was issued by the authority of the cloud it was added in:
         # login.microsoftonline.com for Commercial, login.microsoftonline.us for USGovHigh and USGovDoD. A change
         # that crosses those authorities would send that token to the other one, so refuse it in both
