@@ -52,7 +52,7 @@ Commercial tenants: one in-memory dictionary lookup per helper call (the marker;
 
 ## Bypass audit
 
-Files that make their own HTTP call (`Invoke-RestMethod`, `Invoke-WebRequest`, `Invoke-CIPPRestMethod`, `CIPPRestClient`, `HttpClient`) and name a commercial Microsoft host. 37 files:
+Files that make their own HTTP call (`Invoke-RestMethod`, `Invoke-WebRequest`, `Invoke-CIPPRestMethod`, `CIPPRestClient`, `HttpClient`) and name a commercial Microsoft host. 36 files:
 
 | Disposition | Count |
 | --- | --- |
@@ -64,7 +64,7 @@ Files that make their own HTTP call (`Invoke-RestMethod`, `Invoke-WebRequest`, `
 | Microsoft API calls already go through the helpers; the direct call goes elsewhere | 7 |
 | Anonymous public lookup, no token or tenant data | 4 |
 | Partner tenant only (commercial by design) | 6 |
-| CIPP's own Azure resources | 6 |
+| CIPP's own Azure resources | 5 |
 
 Paths are under `backend/Modules/`.
 
@@ -105,7 +105,6 @@ Paths are under `backend/Modules/`.
 | `CIPPCore/Public/Authentication/Get-CIPPAzIdentityToken.ps1` | management.azure.com, storage.azure.com | Managed identity token | CIPP's own Azure resources |
 | `CIPPCore/Public/Authentication/Remove-CIPPMigrationAppSetting.ps1` | management.azure.com | App setting clean-up | CIPP's own Azure resources |
 | `CIPPCore/Public/Authentication/Set-CIPPSSOEasyAuth.ps1` | login.microsoftonline.com, management.azure.com | Easy Auth setup | CIPP's own Azure resources |
-| `CIPPCore/Public/Entrypoints/Timer Functions/Start-ContainerUpdateCheck.ps1` | management.azure.com | Container update check | CIPP's own Azure resources |
 | `CIPPHTTP/.../CIPP/Settings/Invoke-ExecContainerManagement.ps1` | management.azure.com | Container management | CIPP's own Azure resources |
 
 `CIPPHTTP/...` is `CIPPHTTP/Public/Entrypoints/HTTP Functions/...`.

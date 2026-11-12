@@ -66,7 +66,6 @@ BeforeDiscovery {
         'CIPPCore/Public/Authentication/Get-CIPPAzIdentityToken.ps1'                                            = 'CIPP''s own managed identity'
         'CIPPCore/Public/Authentication/Remove-CIPPMigrationAppSetting.ps1'                                     = 'CIPP''s own Azure resources'
         'CIPPCore/Public/Authentication/Set-CIPPSSOEasyAuth.ps1'                                                = 'CIPP''s own Azure resources'
-        'CIPPCore/Public/Entrypoints/Timer Functions/Start-ContainerUpdateCheck.ps1'                            = 'CIPP''s own Azure resources'
         'CIPPHTTP/Public/Entrypoints/HTTP Functions/CIPP/Settings/Invoke-ExecContainerManagement.ps1'           = 'CIPP''s own Azure resources'
         'CIPPHTTP/Public/Entrypoints/HTTP Functions/CIPP/Setup/Invoke-ExecCreateSAMApp.ps1'                     = 'partner setup with the partner admin''s token'
         'CIPPHTTP/Public/Entrypoints/HTTP Functions/Tenant/Administration/Tenant/Invoke-ListExternalTenantInfo.ps1' = 'anonymous lookups; Graph via helper as the partner'
