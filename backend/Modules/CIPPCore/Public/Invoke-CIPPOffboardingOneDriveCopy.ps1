@@ -22,6 +22,9 @@ function Invoke-CIPPOffboardingOneDriveCopy {
         # UPNs or object ids, as strings or {label, value} objects.
         $Recipients,
 
+        # Chosen by Invoke-CIPPOffboardingJob and also given to the licence step, which waits for this copy.
+        [string]$OperationId,
+
         $APIName = 'Offboard user',
         $Headers
     )
@@ -40,8 +43,16 @@ function Invoke-CIPPOffboardingOneDriveCopy {
     } catch { $null }
     $StartedBy = $Principal.userDetails ?? $Headers.'x-ms-client-principal-name' ?? 'CIPP offboarding'
 
-    $Result = Start-CIPPOneDriveCopyToUser -TenantFilter $TenantFilter -Leaver $Username -Recipients $RecipientIds `
-        -StartedBy $StartedBy -Headers $Headers -APIName $APIName
+    $StartParams = @{
+        TenantFilter = $TenantFilter
+        Leaver       = $Username
+        Recipients   = $RecipientIds
+        StartedBy    = $StartedBy
+        Headers      = $Headers
+        APIName      = $APIName
+    }
+    if ($OperationId) { $StartParams.OperationId = $OperationId }
+    $Result = Start-CIPPOneDriveCopyToUser @StartParams
 
     $Started = @($Result.Recipients | Where-Object { $_.State -ne 'Failed' } | ForEach-Object { $_.UserPrincipalName })
     $Failed = @($Result.Recipients | Where-Object { $_.State -eq 'Failed' } | ForEach-Object { "$($_.UserPrincipalName) ($($_.Message))" })

@@ -26,11 +26,13 @@ BeforeAll {
 Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
     BeforeEach {
         $script:Now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        $script:OtherOpId = '99999999-2222-3333-4444-555555555555'
         $script:Rows = @(
-            [pscustomobject]@{ RowKey = 'old-op'; Kind = 'Operation'; LeaverId = $script:UserId; StartedUnix = $script:Now - 86400 }
             [pscustomobject]@{ RowKey = $script:OpId; Kind = 'Operation'; LeaverId = $script:UserId; StartedUnix = $script:Now }
+            # A newer copy of the same user that this offboarding did not start (another caller, another run).
+            [pscustomobject]@{ RowKey = $script:OtherOpId; Kind = 'Operation'; LeaverId = $script:UserId; StartedUnix = $script:Now + 60 }
         )
-        Mock Get-CIPPAzDataTableEntity { $script:Rows }
+        Mock Get-CIPPAzDataTableEntity { @($script:Rows | Where-Object { $Filter -like "*RowKey eq '$($_.RowKey)'*" }) }
         Mock Update-CIPPOneDriveCopyToUserStatus { New-Status 'Completed' }
         Mock Remove-CIPPLicense { if ($Schedule) { 'Scheduled license removal for pat@contoso.com.' } else { 'Removed licenses for pat@contoso.com.' } }
         Mock Add-CIPPScheduledTask { }
@@ -41,17 +43,17 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
 
     Context 'offboarding run' {
         It 'hands over to the normal scheduled licence removal when the copy has completed' {
-            $Result = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10)
+            $Result = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId
             $Result | Should -Be 'Scheduled license removal for pat@contoso.com.'
             Should -Invoke Update-CIPPOneDriveCopyToUserStatus -Times 1 -Exactly -ParameterFilter { $OperationId -eq $script:OpId }
             Should -Invoke Remove-CIPPLicense -Times 1 -Exactly -ParameterFilter { $Schedule -and $userid -eq $script:UserId }
-            Should -Invoke Get-CIPPAzDataTableEntity -ParameterFilter { $Filter -eq "PartitionKey eq 'contoso.com' and Kind eq 'Operation' and LeaverId eq '$($script:UserId)'" }
+            Should -Invoke Get-CIPPAzDataTableEntity -ParameterFilter { $Filter -eq "PartitionKey eq 'contoso.com' and RowKey eq '$($script:OpId)'" }
         }
 
         It 'defers licence removal to a recurring check while the copy is <_>' -ForEach @('Queued', 'InProgress') {
             $script:State = $_
             Mock Update-CIPPOneDriveCopyToUserStatus { New-Status $script:State }
-            $Result = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10)
+            $Result = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId
             $Result | Should -BeLike '*Licence removal for pat@contoso.com is deferred*'
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
             Should -Invoke Add-CIPPScheduledTask -Times 1 -Exactly -ParameterFilter {
@@ -61,14 +63,17 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
         }
 
         It 'keeps the licences and fails the step when <Case>' -ForEach @(
-            @{ Case = 'the copy failed'; Setup = { Mock Update-CIPPOneDriveCopyToUserStatus { New-Status 'Failed' } }; After = 0; Message = '*NOT removed*failed*' }
-            @{ Case = 'this run started no copy (only an older one exists)'; Setup = {}; After = 'now'; Message = '*NOT removed*did not start a copy*' }
-            @{ Case = 'there is no copy at all'; Setup = { $script:Rows = @() }; After = 0; Message = '*NOT removed*did not start a copy*' }
-            @{ Case = 'the copy has gone from storage'; Setup = { Mock Update-CIPPOneDriveCopyToUserStatus { throw [System.Management.Automation.ItemNotFoundException]::new('gone') } }; After = 0; Message = '*NOT removed*could not be found*' }
+            @{ Case = 'the copy failed'; Setup = { Mock Update-CIPPOneDriveCopyToUserStatus { New-Status 'Failed' } }; Message = '*NOT removed*failed*' }
+            @{ Case = 'this run started no copy (only another copy of the user exists)'; Setup = { $script:Rows = @($script:Rows[1]) }; Message = '*NOT removed*did not start a copy*' }
+            @{ Case = 'there is no copy at all'; Setup = { $script:Rows = @() }; Message = '*NOT removed*did not start a copy*' }
+            @{ Case = 'no copy id was given'; Setup = { $script:NoId = $true }; Message = '*NOT removed*did not start a copy*' }
+            @{ Case = 'the copy has gone from storage'; Setup = { Mock Update-CIPPOneDriveCopyToUserStatus { throw [System.Management.Automation.ItemNotFoundException]::new('gone') } }; Message = '*NOT removed*could not be found*' }
         ) {
+            $script:NoId = $false
             . $Setup
-            if ($After -eq 'now') { $script:Rows = @($script:Rows[0]); $After = $script:Now }
-            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter $After } | Should -Throw -ExpectedMessage $Message
+            $Params = $script:Base.Clone()
+            if (-not $script:NoId) { $Params.CopyOperationId = $script:OpId }
+            { Remove-CIPPLicenseAfterOneDriveCopy @Params } | Should -Throw -ExpectedMessage $Message
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
             Should -Invoke Add-CIPPScheduledTask -Times 0 -Exactly
             Should -Invoke Write-LogMessage -ParameterFilter { $sev -eq 'Error' }
@@ -81,7 +86,7 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
             $script:Reply = $Reply
             Mock Update-CIPPOneDriveCopyToUserStatus { New-Status 'InProgress' }
             Mock Add-CIPPScheduledTask { $script:Reply }
-            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10) } | Should -Throw -ExpectedMessage '*NOT removed*could not be scheduled*'
+            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId } | Should -Throw -ExpectedMessage '*NOT removed*could not be scheduled*'
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
             Should -Invoke Write-LogMessage -ParameterFilter { $sev -eq 'Error' }
         }
@@ -89,13 +94,13 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
         It 'does not treat the scheduler success message as an error' {
             Mock Update-CIPPOneDriveCopyToUserStatus { New-Status 'Queued' }
             Mock Add-CIPPScheduledTask { 'Successfully added task: Remove License after OneDrive copy: pat@contoso.com. It will run in 30 minutes.' }
-            Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10) | Should -BeLike '*deferred*'
+            Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId | Should -BeLike '*deferred*'
         }
 
         It 'never removes licences early: only a Completed copy reaches Remove-CIPPLicense (<_>)' -ForEach @('Queued', 'InProgress', 'Failed', 'Unknown', '') {
             $script:State = $_
             Mock Update-CIPPOneDriveCopyToUserStatus { New-Status $script:State }
-            try { $null = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10) } catch { }
+            try { $null = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId } catch { }
             $script:CippScheduledTaskIdStorage = [pscustomobject]@{ Value = 'task-row-1' }
             $null = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -OperationId $script:OpId -Deadline 0
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
@@ -103,7 +108,23 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
 
         It 'keeps the licences when reading the copy status fails transiently' {
             Mock Update-CIPPOneDriveCopyToUserStatus { throw 'Storage 503' }
-            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyStartedAfter ($script:Now - 10) } | Should -Throw '*503*'
+            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId } | Should -Throw '*503*'
+            Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
+        }
+
+        It 'waits for the copy this offboarding started, not a newer copy of the same user' {
+            # The other copy has completed; this run's copy is still in progress.
+            Mock Update-CIPPOneDriveCopyToUserStatus { if ($OperationId -eq $script:OtherOpId) { New-Status 'Completed' } else { New-Status 'InProgress' } }
+            $Result = Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId
+            $Result | Should -BeLike '*deferred*'
+            Should -Invoke Update-CIPPOneDriveCopyToUserStatus -Times 0 -Exactly -ParameterFilter { $OperationId -eq $script:OtherOpId }
+            Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
+        }
+
+        It 'refuses a copy of another user, even when it has completed' {
+            $script:Rows = @([pscustomobject]@{ RowKey = $script:OpId; Kind = 'Operation'; LeaverId = 'bbbbbbbb-1111-2222-3333-444444444444'; StartedUnix = $script:Now })
+            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId } | Should -Throw -ExpectedMessage '*NOT removed*did not start a copy*'
+            Should -Invoke Update-CIPPOneDriveCopyToUserStatus -Times 0 -Exactly
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
         }
 
@@ -124,7 +145,7 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
             $Result | Should -BeLike '*completed. Removed licenses for pat@contoso.com.*'
             Should -Invoke Remove-CIPPLicense -Times 1 -Exactly -ParameterFilter { -not $Schedule }
             Should -Invoke Update-AzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.RowKey -eq 'task-row-1' -and $Entity.Recurrence -eq '0' }
-            Should -Invoke Get-CIPPAzDataTableEntity -Times 0 -Exactly
+            Should -Invoke Get-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Filter -eq "PartitionKey eq 'contoso.com' and RowKey eq '$($script:OpId)'" }
         }
 
         It 'waits while the copy is in progress' {
@@ -140,6 +161,14 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
             { Remove-CIPPLicenseAfterOneDriveCopy @script:Sched } | Should -Throw '*503*'
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
             Should -Invoke Update-AzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'ends the recurrence without removing licences when the operation is a copy of another user' {
+            $script:Rows = @([pscustomobject]@{ RowKey = $script:OpId; Kind = 'Operation'; LeaverId = 'bbbbbbbb-1111-2222-3333-444444444444'; StartedUnix = $script:Now })
+            Remove-CIPPLicenseAfterOneDriveCopy @script:Sched | Should -BeLike '*NOT removed*could not be found for this user*'
+            Should -Invoke Update-CIPPOneDriveCopyToUserStatus -Times 0 -Exactly
+            Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
+            Should -Invoke Update-AzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.Recurrence -eq '0' }
         }
 
         It 'never schedules another follow-up from inside the follow-up' {

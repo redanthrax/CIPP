@@ -6,9 +6,9 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
         Used by the offboarding job in place of Remove-CIPPLicense when "Copy OneDrive to user(s)" is
         selected, because removing the licence starts the countdown to the OneDrive being deleted.
 
-        Offboarding run (no OperationId): finds the copy the same offboarding started (the newest
-        OneDriveCopyToUser operation for this user that started at or after CopyStartedAfter) and checks
-        it once.
+        Offboarding run (no OperationId): checks once the copy the same offboarding started, named by
+        CopyOperationId (chosen by Invoke-CIPPOffboardingJob and given to the copy step). Any other copy
+        of the same user, started by someone else or another run, is never taken for it.
           - Completed: hands over to Remove-CIPPLicense -Schedule, exactly as the normal step does.
           - Still queued or in progress: schedules itself as a recurring task (every 30 minutes) that
             checks again and removes the licences when the copy completes.
@@ -33,9 +33,8 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
 
         [string]$username,
 
-        # Unix time the offboarding job was built; a copy started before it (allowing two minutes of
-        # clock skew between workers) belongs to another run.
-        [int64]$CopyStartedAfter = 0,
+        # Operation id the offboarding job gave its copy step.
+        [string]$CopyOperationId,
 
         # Set by the follow-up scheduled task.
         [string]$OperationId,
@@ -65,18 +64,23 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
     }
     $KeptMessage = { param($Reason) "Licences were NOT removed for $Name because $Reason Remove them manually once the OneDrive has been copied." }
 
-    if (-not $Scheduled) {
+    if (-not $Scheduled) { $OperationId = $CopyOperationId }
+
+    # The operation must exist and be a copy of this user's OneDrive; otherwise a copy of someone else
+    # (or a stale id) could release this user's licences.
+    $Operation = $null
+    if ($OperationId -match $GuidPattern) {
         $Table = Get-CIPPTable -TableName 'OneDriveCopyToUser'
         $SafeTenant = $TenantFilter -replace "'", "''"
-        $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeTenant' and Kind eq 'Operation' and LeaverId eq '$userid'") |
-            Where-Object { [int64]($_.StartedUnix ?? 0) -ge ($CopyStartedAfter - 120) } |
-            Sort-Object { [int64]($_.StartedUnix ?? 0) } -Descending | Select-Object -First 1
-        if (-not $Operation) {
-            $Message = & $KeptMessage 'the OneDrive copy step did not start a copy.'
-            Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -sev Error
-            throw $Message
-        }
-        $OperationId = [string]$Operation.RowKey
+        $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeTenant' and RowKey eq '$OperationId'") |
+            Where-Object { $_.Kind -eq 'Operation' -and [string]$_.LeaverId -eq $userid } | Select-Object -First 1
+    }
+    if (-not $Operation) {
+        $Reason = if ($Scheduled) { "OneDrive copy $OperationId could not be found for this user." } else { 'the OneDrive copy step did not start a copy.' }
+        $Message = & $KeptMessage $Reason
+        if ($Scheduled) { return & $StopChecking $Message 'Error' }
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -sev Error
+        throw $Message
     }
 
     try {

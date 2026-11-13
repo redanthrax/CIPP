@@ -17,7 +17,7 @@ BeforeAll {
         $Accelerators::Add('HttpStatusCode', [System.Net.HttpStatusCode])
     }
 
-    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $IncludeVersionHistory, $StartedBy, $Headers, $APIName) }
+    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $IncludeVersionHistory, $StartedBy, $OperationId, $Headers, $APIName) }
     function Update-CIPPOneDriveCopyToUserStatus { param($TenantFilter, $OperationId) }
     function Write-LogMessage { param($Headers, $API, $tenant, $message, $sev, $LogData) }
     function Get-CippException { param($Exception) [PSCustomObject]@{ NormalizedError = $Exception.Exception.Message ?? $Exception.Message } }
@@ -89,6 +89,11 @@ Describe 'Invoke-ExecOneDriveCopyToUser' {
             (@($Recipients) -join ';') -eq 'bob@contoso.com;carol@contoso.com;dave@contoso.com;erin@contoso.com' -and
             $IncludeVersionHistory -eq $true -and $StartedBy -eq 'tech@partner.com'
         }
+    }
+
+    It 'never lets the caller choose the operation id (it could reuse an id the offboarding licence step waits for)' {
+        Invoke-ExecOneDriveCopyToUser -Request (New-ExecRequest @{ tenantFilter = 'contoso.com'; leaver = 'jane@contoso.com'; recipients = 'bob@contoso.com'; OperationId = '11111111-2222-3333-4444-555555555555' }) | Out-Null
+        Should -Invoke Start-CIPPOneDriveCopyToUser -Times 1 -Exactly -ParameterFilter { [string]::IsNullOrEmpty($OperationId) }
     }
 
     It 'falls back to the API client name for StartedBy' {

@@ -35,8 +35,10 @@ function Invoke-CIPPOffboardingJob {
         # Copy OneDrive to recipients. When licences are also being removed, the licence step waits for
         # the copy (Remove-CIPPLicenseAfterOneDriveCopy) instead of removing them straight away; with the
         # option off, both steps are exactly as before.
+        # The copy's operation id is chosen here and handed to both steps, so the licence step waits for
+        # exactly the copy this run starts, never another copy of the same user.
         $OneDriveCopySelected = @($Options.OneDriveCopyTo | Where-Object { $_ }).Count -gt 0
-        $JobBuiltUnix = [int64]([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())
+        $OneDriveCopyOperationId = (New-Guid).Guid
 
         # Build dynamic batch of offboarding tasks based on selected options
         $Batch = [System.Collections.Generic.List[object]]::new()
@@ -258,6 +260,7 @@ function Invoke-CIPPOffboardingJob {
                     TenantFilter = $TenantFilter
                     Username     = $Username
                     Recipients   = $Options.OneDriveCopyTo
+                    OperationId  = $OneDriveCopyOperationId
                     APIName      = $APIName
                     Headers      = $Headers
                 }
@@ -397,7 +400,7 @@ function Invoke-CIPPOffboardingJob {
                     userid           = $UserID
                     username         = $Username
                     tenantFilter     = $TenantFilter
-                    CopyStartedAfter = $JobBuiltUnix
+                    CopyOperationId  = $OneDriveCopyOperationId
                     APIName          = $APIName
                     Headers          = $Headers
                 }

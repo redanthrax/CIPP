@@ -50,7 +50,6 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
     }
 
     It 'copies before removing licences, and removes them through the copy gate' {
-        $Before = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
         $Batch = Get-Batch @{ RemoveLicenses = $true; DisableSignIn = $true; OneDriveCopyTo = @(@{ label = 'Bob'; value = 'bob-id' }, 'carol@contoso.com') }
         $Cmdlets = @($Batch | ForEach-Object { $_.Cmdlet })
 
@@ -66,7 +65,10 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
 
         $Gate = $Batch | Where-Object Cmdlet -EQ 'Remove-CIPPLicenseAfterOneDriveCopy'
         $Gate.Parameters.userid | Should -Be 'aaaaaaaa-1111-2222-3333-444444444444'
-        $Gate.Parameters.CopyStartedAfter | Should -BeGreaterOrEqual $Before
+        # Both steps carry the same operation id, so the gate waits for exactly this run's copy.
+        $Copy.Parameters.OperationId | Should -Match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        $Gate.Parameters.CopyOperationId | Should -Be $Copy.Parameters.OperationId
+        $Gate.Parameters.ContainsKey('CopyStartedAfter') | Should -BeFalse
     }
 
     It 'copies without touching licences when Remove licenses is off' {

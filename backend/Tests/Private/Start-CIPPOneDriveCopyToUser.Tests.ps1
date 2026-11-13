@@ -12,6 +12,7 @@ BeforeAll {
     function Set-CIPPSharePointLibraryCopyOperation { param($TenantFilter, $OperationId, $Entity, $TableName) }
     function Get-CIPPTable { param($TableName) @{ TableName = $TableName } }
     function Add-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $TableName) }
+    function Get-CIPPAzDataTableEntity { param($Filter, $TableName) }
     function Write-LogMessage { param($headers, $API, $tenant, $message, $sev, $LogData) }
     function Get-CippException { param($Exception) [pscustomobject]@{ NormalizedError = [string]$Exception.Exception.Message } }
 
@@ -58,7 +59,31 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         }
         Mock Set-CIPPSharePointLibraryCopyOperation {}
         Mock Add-CIPPAzDataTableEntity {}
+        Mock Get-CIPPAzDataTableEntity {}
         Mock Write-LogMessage {}
+    }
+
+    Context 'operation id chosen by the offboarding job' {
+        It 'stores the copy under the given id' {
+            $Id = '11111111-2222-3333-4444-555555555555'
+            (Start-CIPPOneDriveCopyToUser @script:Params -OperationId $Id).OperationId | Should -Be $Id
+            Should -Invoke Get-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Filter -eq "PartitionKey eq 'contoso.com' and RowKey eq '$Id'" }
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.RowKey -eq $Id -and $Entity.Kind -eq 'Operation' }
+            Should -Invoke Set-CIPPSharePointLibraryCopyOperation -ParameterFilter { $OperationId -eq "$Id-r0" }
+        }
+
+        It 'refuses an id that is already in use, without writing anything' {
+            Mock Get-CIPPAzDataTableEntity { [pscustomobject]@{ RowKey = '11111111-2222-3333-4444-555555555555'; Kind = 'Operation' } }
+            { Start-CIPPOneDriveCopyToUser @script:Params -OperationId '11111111-2222-3333-4444-555555555555' } | Should -Throw '*already exists*'
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+            Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'refuses an id that is not a GUID' {
+            { Start-CIPPOneDriveCopyToUser @script:Params -OperationId "x' or RowKey ne '" } | Should -Throw '*not a valid operation id*'
+            Should -Invoke Get-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
     }
 
     It 'creates the UPN folder and submits KeepBoth copy jobs for every root item into it' {

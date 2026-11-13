@@ -3,7 +3,7 @@
 BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Invoke-CIPPOffboardingOneDriveCopy.ps1')
-    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $StartedBy, $Headers, $APIName) }
+    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $StartedBy, $OperationId, $Headers, $APIName) }
 
     function New-StartResult([object[]]$Recipients) {
         [pscustomobject]@{ OperationId = 'op-1'; FolderName = 'pat@contoso.com'; RootItemCount = 4; ExpectedBytes = 100; Warnings = @(); Recipients = $Recipients }
@@ -23,6 +23,12 @@ Describe 'Invoke-CIPPOffboardingOneDriveCopy' {
         Should -Invoke Start-CIPPOneDriveCopyToUser -Times 1 -Exactly -ParameterFilter {
             $Leaver -eq 'pat@contoso.com' -and (@($Recipients) -join ';') -eq 'bob-id;carol-id;dave@contoso.com' -and $StartedBy -eq 'tech@partner.com'
         }
+    }
+
+    It 'starts the copy under the operation id the offboarding job chose' {
+        $Id = '11111111-2222-3333-4444-555555555555'
+        $null = Invoke-CIPPOffboardingOneDriveCopy -TenantFilter 'contoso.com' -Username 'pat@contoso.com' -Recipients @('bob-id') -OperationId $Id
+        Should -Invoke Start-CIPPOneDriveCopyToUser -Times 1 -Exactly -ParameterFilter { $OperationId -eq $Id }
     }
 
     It 'reports a recipient that did not start as an error line' {

@@ -34,6 +34,11 @@ function Start-CIPPOneDriveCopyToUser {
         [bool]$IncludeVersionHistory = $false,
 
         [string]$StartedBy,
+
+        # Internal: lets the offboarding job name the operation up front, so its licence step waits
+        # for exactly this copy. Not exposed by the HTTP endpoint. An id that is already in use is refused.
+        [string]$OperationId,
+
         $Headers,
         $APIName = 'OneDrive Copy To User'
     )
@@ -45,6 +50,17 @@ function Start-CIPPOneDriveCopyToUser {
     $KeepBoth = 2
     # SharePoint's documented limit for one move/copy across sites; each root item is its own job.
     $PerJobByteLimit = 100GB
+
+    if ($OperationId) {
+        if ($OperationId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+            throw [System.ArgumentException]::new('OperationId is not a valid operation id.')
+        }
+        $IdTable = Get-CIPPTable -TableName $TableName
+        $SafeTenant = $TenantFilter -replace "'", "''"
+        if (@(Get-CIPPAzDataTableEntity @IdTable -Filter "PartitionKey eq '$SafeTenant' and RowKey eq '$OperationId'").Count -gt 0) {
+            throw [System.ArgumentException]::new("OneDrive copy $OperationId already exists; it was not started again.")
+        }
+    }
 
     $RecipientIds = @($Recipients | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ } |
             Sort-Object -Unique)
@@ -143,7 +159,7 @@ function Start-CIPPOneDriveCopyToUser {
     }
 
     # --- Copy jobs ------------------------------------------------------------------------------
-    $OperationId = (New-Guid).Guid
+    if (-not $OperationId) { $OperationId = (New-Guid).Guid }
     $Expiry = ([DateTime]::UtcNow.AddDays(14)).ToString('o')
     $RecipientRecords = [System.Collections.Generic.List[object]]::new()
     $Index = 0
