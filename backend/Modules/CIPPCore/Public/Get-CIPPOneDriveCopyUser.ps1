@@ -38,7 +38,7 @@ function Get-CIPPOneDriveCopyUser {
     $Escaped = [System.Uri]::EscapeDataString($Id)
 
     try {
-        $User = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$Escaped`?`$select=id,userPrincipalName,displayName,accountEnabled,userType,assignedPlans" -tenantid $TenantFilter -asapp $true
+        $User = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$Escaped`?`$select=id,userPrincipalName,displayName,accountEnabled,userType,externalUserState,assignedPlans" -tenantid $TenantFilter -asapp $true
     } catch {
         if ($_.Exception.Message -match $NotFoundPattern) {
             throw [System.ArgumentException]::new("$Label '$Id' was not found in tenant $TenantFilter.")
@@ -52,7 +52,11 @@ function Get-CIPPOneDriveCopyUser {
 
     # A guest is a person outside the organisation; the leaver's files must not be handed to one.
     # A guest leaver is still allowed.
-    if ($Kind -eq 'Recipient' -and [string]$User.userType -eq 'Guest') {
+    # userType alone is not enough: an invited B2B user can be made a Member (userType Member, still an
+    # outside identity), and userType can be null on older accounts. An outside identity keeps '#EXT#'
+    # in its UPN and/or an externalUserState, so either one also marks the recipient as a guest.
+    $IsExternal = [string]$User.userType -eq 'Guest' -or $Upn -match '#EXT#@' -or -not [string]::IsNullOrWhiteSpace([string]$User.externalUserState)
+    if ($Kind -eq 'Recipient' -and $IsExternal) {
         throw [System.ArgumentException]::new("Recipient $Upn is a guest. Only members of the tenant can receive the copy.")
     }
 
