@@ -134,7 +134,15 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
         PostExecution = @{ Webhook = $false; Email = $false; PSA = $false }
         Reference     = "OneDriveCopy-$OperationId"
     }
-    Add-CIPPScheduledTask -Task $ScheduledTask -hidden $false -DisallowDuplicateName $true | Out-Null
+    # Add-CIPPScheduledTask reports most failures (a check for this user already pending, a storage
+    # error) as an 'Error - ...' string rather than throwing; without the follow-up nothing would ever
+    # remove the licences, so the step must fail rather than claim the removal is deferred.
+    $TaskResult = @(Add-CIPPScheduledTask -Task $ScheduledTask -hidden $false -DisallowDuplicateName $true) -join ' '
+    if ($TaskResult -like 'Error*') {
+        $Message = & $KeptMessage "the follow-up check for OneDrive copy $OperationId could not be scheduled ($TaskResult)."
+        Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -sev Error
+        throw $Message
+    }
     $Message = "OneDrive copy $OperationId is $($Status.State). Licence removal for $Name is deferred: CIPP checks every 30 minutes and removes the licences once the copy completes, or leaves them in place if it fails."
     Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -message $Message -sev Info
     return $Message
