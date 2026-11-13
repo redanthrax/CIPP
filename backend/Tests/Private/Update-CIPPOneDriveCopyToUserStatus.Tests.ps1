@@ -304,6 +304,20 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
             $Result.AllCompleted | Should -BeFalse
         }
 
+        It 'keeps what a check already read when the check is cut short' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 12), (New-Recipient 1 'carol@contoso.com' $null 12)) -RootItemCount 12
+            foreach ($j in 0..11) { $script:Progress["0-$j"] = New-Progress $false 1 1 @("File: error $j") }
+            # The check dies when it reaches the second recipient (stands in for a timeout or worker recycle).
+            Mock Get-CIPPSharePointLibraryCopyOperation { throw 'worker recycled' } -ParameterFilter { $OperationId -like '*-r1' }
+
+            { Invoke-Status -Interval 60 -Max 100 } | Should -Throw '*worker recycled*'
+
+            $Saved = @($script:Store.Values | Where-Object { $_.RowKey -like "$($script:OpId)-js-0-*" })
+            $Saved.Count | Should -BeGreaterOrEqual 10 -Because 'job states are saved in batches of 10 while polling'
+            @($Saved | ForEach-Object { $_.ErrorMessages | ConvertFrom-Json }) | Should -Contain 'File: error 0'
+            @($Saved | Where-Object { [int64]$_.LastPolledUnix -gt 0 }).Count | Should -Be $Saved.Count
+        }
+
         It 'returns the stored (unfinished) state inside the rate window even if SharePoint has since finished' {
             $script:Progress['0-0'] = New-Progress $false 1
             Invoke-Status -Interval 60 | Out-Null

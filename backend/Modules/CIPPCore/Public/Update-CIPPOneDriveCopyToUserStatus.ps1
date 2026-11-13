@@ -39,6 +39,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
     $MaxPollFailures = 5
     $MaxMessagesPerJob = 25
     $MaxMessagesPerRecipient = 50
+    $SaveEvery = 10
 
     if ($OperationId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
         throw [System.ArgumentException]::new('OperationId is not a valid operation id.')
@@ -205,6 +206,14 @@ function Update-CIPPOneDriveCopyToUserStatus {
                         PollFailures     = [int]$State.PollFailures
                         LastPolledUnix   = [int64]$State.LastPolledUnix
                     })
+                # Saved in small batches, not once at the end: a check cut short (timeout, worker
+                # recycle, an error further on) must keep what it already read, because SharePoint's
+                # log queue does not give the same errors back, and the next check must move on to
+                # other jobs rather than poll the same ones again.
+                if ($Changed.Count -ge $SaveEvery) {
+                    Add-CIPPAzDataTableEntity @Table -Entity @($Changed) -Force
+                    $Changed.Clear()
+                }
             }
         }
         if ($Changed.Count -gt 0) {
