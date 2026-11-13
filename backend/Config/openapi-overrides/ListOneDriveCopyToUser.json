@@ -1,0 +1,73 @@
+{
+  "method": "get",
+  "parameters": [
+    {
+      "name": "OperationId",
+      "in": "query",
+      "required": true,
+      "description": "OperationId returned by ExecOneDriveCopyToUser.",
+      "schema": { "type": "string", "format": "uuid" }
+    },
+    { "$ref": "#/components/parameters/tenantFilter" }
+  ],
+  "responses": {
+    "200": {
+      "description": "Current state. Completed and Failed are final; remove the leaver's licences only when State is Completed (AllCompleted is true).",
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "Results": {
+                "type": "object",
+                "properties": {
+                  "OperationId": { "type": "string", "format": "uuid" },
+                  "Leaver": { "type": "string" },
+                  "StartedBy": { "type": "string" },
+                  "StartedUtc": { "type": "string", "format": "date-time" },
+                  "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Completed when every recipient is Completed; Failed when every recipient is final and at least one Failed." },
+                  "IsComplete": { "type": "boolean", "description": "State is Completed or Failed." },
+                  "AllCompleted": { "type": "boolean", "description": "State is Completed." },
+                  "RootItemCount": { "type": "integer" },
+                  "ExpectedBytes": { "type": "integer", "format": "int64" },
+                  "Recipients": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "UserPrincipalName": { "type": "string" },
+                        "FolderName": { "type": "string" },
+                        "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Failed is only reported once every job for the recipient has finished (or the copy never started), and means at least one item was not copied." },
+                        "IsComplete": { "type": "boolean" },
+                        "JobsComplete": { "type": "integer" },
+                        "JobsTotal": { "type": "integer" },
+                        "ItemsCopied": { "type": "integer", "format": "int64", "description": "Files created in the recipient's folder." },
+                        "ObjectsProcessed": { "type": "integer", "format": "int64", "description": "Files and folders processed, as SharePoint reports them." },
+                        "TotalExpectedObjects": { "type": ["integer", "null"], "format": "int64" },
+                        "BytesCopied": { "type": "integer", "format": "int64" },
+                        "ErrorCount": { "type": "integer", "format": "int64" },
+                        "Errors": { "type": "array", "items": { "type": "string" }, "description": "Sanitised: URLs, paths and file names are redacted." },
+                        "Warnings": { "type": "array", "items": { "type": "string" } },
+                        "Message": { "type": "string" }
+                      }
+                    }
+                  },
+                  "LastUpdatedUtc": { "type": "string", "format": "date-time" },
+                  "Message": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "400": {
+      "description": "tenantFilter or OperationId missing, or OperationId malformed.",
+      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
+    },
+    "404": {
+      "description": "No such operation in this tenant (or it has been removed).",
+      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
+    }
+  }
+}

@@ -33761,6 +33761,197 @@
         "x-cipp-any-tenant": true
       }
     },
+    "/api/ExecOneDriveCopyToUser": {
+      "post": {
+        "summary": "ExecOneDriveCopyToUser",
+        "operationId": "ExecOneDriveCopyToUser",
+        "tags": [
+          "Identity > Administration > Users"
+        ],
+        "description": "Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN at the root of each recipient's OneDrive, without overwriting anything already there (KeepBoth on name conflicts). The leaver and recipients must be in tenantFilter; each recipient needs a OneDrive licence, a provisioned OneDrive and enough free space. Returns an OperationId; poll ListOneDriveCopyToUser with it until State is Completed before removing the leaver's licences.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "includeVersionHistory": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Copy every version of each file. Off by default: only the current version is copied, which is what the free-space check counts."
+                  },
+                  "leaver": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "UPN or object id of the user whose OneDrive is copied. A string or a {label,value} object.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ]
+                  },
+                  "recipients": {
+                    "type": "string",
+                    "description": "UPNs or object ids of the users who receive the copy (at most 10). An array of strings or {label,value} objects, or one comma-separated string. Each recipient needs a OneDrive licence, a provisioned OneDrive and free space for the leaver's files.",
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "$ref": "#/components/schemas/LabelValue"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "tenantFilter": {
+                    "type": "string",
+                    "description": "The tenant's default domain or tenant ID. Must name one tenant; the leaver and every recipient are looked up in it. Use the same value when polling ListOneDriveCopyToUser."
+                  }
+                },
+                "required": [
+                  "tenantFilter",
+                  "leaver",
+                  "recipients"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Copy started. The leaver's root items are copied into /<leaver UPN> at the root of each recipient's OneDrive; existing files are kept and copies are renamed on conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults",
+                  "type": "object",
+                  "properties": {
+                    "Results": {
+                      "type": "object",
+                      "properties": {
+                        "OperationId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "description": "Pass to ListOneDriveCopyToUser."
+                        },
+                        "Leaver": {
+                          "type": "string"
+                        },
+                        "FolderName": {
+                          "type": "string",
+                          "description": "The leaver's UPN; the folder created (or reused) at each recipient's OneDrive root."
+                        },
+                        "RootItemCount": {
+                          "type": "integer",
+                          "description": "Files and folders at the root of the leaver's OneDrive; one copy job each."
+                        },
+                        "ExpectedBytes": {
+                          "type": "integer",
+                          "format": "int64",
+                          "description": "Total size of the leaver's root items (current versions)."
+                        },
+                        "StartedBy": {
+                          "type": "string"
+                        },
+                        "StartedUtc": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "Recipients": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "UserPrincipalName": {
+                                "type": "string"
+                              },
+                              "FolderCreated": {
+                                "type": "boolean",
+                                "description": "False when the folder already existed and was reused."
+                              },
+                              "State": {
+                                "type": "string",
+                                "enum": [
+                                  "Queued",
+                                  "Failed"
+                                ]
+                              },
+                              "JobCount": {
+                                "type": "integer"
+                              },
+                              "Message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "Warnings": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "Message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "400": {
+            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Graph or SharePoint failed, or the copy could not start for any recipient. Results is a string.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "Identity.OneDrive.ReadWrite"
+      }
+    },
     "/api/ExecOneDriveProvision": {
       "post": {
         "summary": "ExecOneDriveProvision",
@@ -64453,6 +64644,203 @@
           }
         ],
         "x-cipp-role": "Tenant.Administration.ReadWrite"
+      }
+    },
+    "/api/ListOneDriveCopyToUser": {
+      "get": {
+        "summary": "ListOneDriveCopyToUser",
+        "operationId": "ListOneDriveCopyToUser",
+        "tags": [
+          "Identity > Administration > Users"
+        ],
+        "description": "Returns the state of a OneDrive copy started by ExecOneDriveCopyToUser: overall and per recipient (Queued, InProgress, Completed or Failed), with the number of files and bytes copied and any errors. Completed and Failed are final. Remove the leaver's licences only once State is Completed.",
+        "parameters": [
+          {
+            "name": "OperationId",
+            "in": "query",
+            "required": true,
+            "description": "OperationId returned by ExecOneDriveCopyToUser.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/tenantFilter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current state. Completed and Failed are final; remove the leaver's licences only when State is Completed (AllCompleted is true).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults",
+                  "type": "object",
+                  "properties": {
+                    "Results": {
+                      "type": "object",
+                      "properties": {
+                        "OperationId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "Leaver": {
+                          "type": "string"
+                        },
+                        "StartedBy": {
+                          "type": "string"
+                        },
+                        "StartedUtc": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "State": {
+                          "type": "string",
+                          "enum": [
+                            "Queued",
+                            "InProgress",
+                            "Completed",
+                            "Failed"
+                          ],
+                          "description": "Completed when every recipient is Completed; Failed when every recipient is final and at least one Failed."
+                        },
+                        "IsComplete": {
+                          "type": "boolean",
+                          "description": "State is Completed or Failed."
+                        },
+                        "AllCompleted": {
+                          "type": "boolean",
+                          "description": "State is Completed."
+                        },
+                        "RootItemCount": {
+                          "type": "integer"
+                        },
+                        "ExpectedBytes": {
+                          "type": "integer",
+                          "format": "int64"
+                        },
+                        "Recipients": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "UserPrincipalName": {
+                                "type": "string"
+                              },
+                              "FolderName": {
+                                "type": "string"
+                              },
+                              "State": {
+                                "type": "string",
+                                "enum": [
+                                  "Queued",
+                                  "InProgress",
+                                  "Completed",
+                                  "Failed"
+                                ],
+                                "description": "Failed is only reported once every job for the recipient has finished (or the copy never started), and means at least one item was not copied."
+                              },
+                              "IsComplete": {
+                                "type": "boolean"
+                              },
+                              "JobsComplete": {
+                                "type": "integer"
+                              },
+                              "JobsTotal": {
+                                "type": "integer"
+                              },
+                              "ItemsCopied": {
+                                "type": "integer",
+                                "format": "int64",
+                                "description": "Files created in the recipient's folder."
+                              },
+                              "ObjectsProcessed": {
+                                "type": "integer",
+                                "format": "int64",
+                                "description": "Files and folders processed, as SharePoint reports them."
+                              },
+                              "TotalExpectedObjects": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "format": "int64"
+                              },
+                              "BytesCopied": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "ErrorCount": {
+                                "type": "integer",
+                                "format": "int64"
+                              },
+                              "Errors": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "description": "Sanitised: URLs, paths and file names are redacted."
+                              },
+                              "Warnings": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "Message": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "LastUpdatedUtc": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "Message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "400": {
+            "description": "tenantFilter or OperationId missing, or OperationId malformed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such operation in this tenant (or it has been removed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "Identity.OneDrive.Read"
       }
     },
     "/api/ListOoO": {

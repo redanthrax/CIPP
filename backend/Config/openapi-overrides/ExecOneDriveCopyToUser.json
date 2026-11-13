@@ -1,0 +1,88 @@
+{
+  "method": "post",
+  "requestBody": {
+    "required": true,
+    "content": {
+      "application/json": {
+        "schema": {
+          "type": "object",
+          "required": ["tenantFilter", "leaver", "recipients"],
+          "properties": {
+            "tenantFilter": {
+              "type": "string",
+              "description": "The tenant's default domain or tenant ID. Must name one tenant; the leaver and every recipient are looked up in it. Use the same value when polling ListOneDriveCopyToUser."
+            },
+            "leaver": {
+              "description": "UPN or object id of the user whose OneDrive is copied. A string or a {label,value} object.",
+              "oneOf": [
+                { "type": "string" },
+                { "$ref": "#/components/schemas/LabelValue" }
+              ]
+            },
+            "recipients": {
+              "description": "UPNs or object ids of the users who receive the copy (at most 10). An array of strings or {label,value} objects, or one comma-separated string. Each recipient needs a OneDrive licence, a provisioned OneDrive and free space for the leaver's files.",
+              "oneOf": [
+                { "type": "string" },
+                { "type": "array", "items": { "oneOf": [{ "type": "string" }, { "$ref": "#/components/schemas/LabelValue" }] } }
+              ]
+            },
+            "includeVersionHistory": {
+              "type": "boolean",
+              "default": false,
+              "description": "Copy every version of each file. Off by default: only the current version is copied, which is what the free-space check counts."
+            }
+          }
+        }
+      }
+    }
+  },
+  "responses": {
+    "200": {
+      "description": "Copy started. The leaver's root items are copied into /<leaver UPN> at the root of each recipient's OneDrive; existing files are kept and copies are renamed on conflict.",
+      "content": {
+        "application/json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "Results": {
+                "type": "object",
+                "properties": {
+                  "OperationId": { "type": "string", "format": "uuid", "description": "Pass to ListOneDriveCopyToUser." },
+                  "Leaver": { "type": "string" },
+                  "FolderName": { "type": "string", "description": "The leaver's UPN; the folder created (or reused) at each recipient's OneDrive root." },
+                  "RootItemCount": { "type": "integer", "description": "Files and folders at the root of the leaver's OneDrive; one copy job each." },
+                  "ExpectedBytes": { "type": "integer", "format": "int64", "description": "Total size of the leaver's root items (current versions)." },
+                  "StartedBy": { "type": "string" },
+                  "StartedUtc": { "type": "string", "format": "date-time" },
+                  "Recipients": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "UserPrincipalName": { "type": "string" },
+                        "FolderCreated": { "type": "boolean", "description": "False when the folder already existed and was reused." },
+                        "State": { "type": "string", "enum": ["Queued", "Failed"] },
+                        "JobCount": { "type": "integer" },
+                        "Message": { "type": "string" }
+                      }
+                    }
+                  },
+                  "Warnings": { "type": "array", "items": { "type": "string" } },
+                  "Message": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "400": {
+      "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
+      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
+    },
+    "500": {
+      "description": "Graph or SharePoint failed, or the copy could not start for any recipient. Results is a string.",
+      "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
+    }
+  }
+}
