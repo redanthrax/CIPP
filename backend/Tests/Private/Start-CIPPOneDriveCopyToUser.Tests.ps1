@@ -156,6 +156,7 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         @{ Case = 'more than 1,000 root items'; Setup = { $script:Children = @(1..1001 | ForEach-Object { [pscustomobject]@{ name = "f$_"; size = 1; file = @{} } }) }; Recipients = @('bob@contoso.com'); Message = '*1001 items at its root*' }
         @{ Case = 'no recipients'; Setup = {}; Recipients = @(' '); Message = 'At least one recipient is required.' }
         @{ Case = 'too many recipients'; Setup = {}; Recipients = @(1..11 | ForEach-Object { "u$_@contoso.com" }); Message = 'At most 10 recipients*' }
+        @{ Case = 'a guest recipient among good ones'; Setup = { Mock Get-CIPPOneDriveCopyUser { throw [System.ArgumentException]::new('Recipient g_x.com#EXT#@contoso.com is a guest. Only members of the tenant can receive the copy.') } -ParameterFilter { $UserId -like 'g_*' } }; Recipients = @('bob@contoso.com', 'g_x.com#EXT#@contoso.com'); Message = '*is a guest*' }
     ) {
         . $Setup
         $Params = $script:Params.Clone()
@@ -164,6 +165,8 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        Should -Invoke Set-CIPPSharePointLibraryCopyOperation -Times 0 -Exactly
+        Should -Invoke Write-LogMessage -Times 0 -Exactly -ParameterFilter { $sev -eq 'Info' }
     }
 
     It 'names the folder exactly after a <Case> leaver UPN and escapes it in every URI' -ForEach @(

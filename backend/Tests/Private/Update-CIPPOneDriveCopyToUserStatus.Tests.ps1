@@ -248,6 +248,104 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
         (Invoke-Status -Interval 60).CheckedSharePoint | Should -BeTrue
         (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).CheckedSharePoint | Should -BeFalse
     }
+    Context 'licence gate safety (tester)' {
+        BeforeEach {
+            # Moves every stored timestamp back, as if this many seconds had passed before the next check.
+            function Step-Clock([int]$Seconds = 60) {
+                foreach ($Row in @($script:Store.Values)) {
+                    if ($null -ne $Row.LastPolledUnix) { $Row.LastPolledUnix = [int64]$Row.LastPolledUnix - $Seconds }
+                    if ($null -ne $Row.LastCheckedUnix) { $Row.LastCheckedUnix = [int64]$Row.LastCheckedUnix - $Seconds }
+                }
+            }
+        }
+
+        # LRU with ties broken by index is not perfectly even, but no unfinished job ever waits more
+        # than ceil(unfinished / MaxJobsPerCheck) checks between two polls.
+        It 'reaches every unfinished job within ceil(unfinished/cap) checks when none ever finishes (no starvation)' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 7), (New-Recipient 1 'carol@contoso.com' $null 7)) -RootItemCount 7
+            $script:Polls = [System.Collections.Generic.List[object]]::new()
+            $script:Check = 0
+            Mock Get-CIPPSharePointCopyJobProgress { $script:Polls.Add([pscustomobject]@{ Job = $CopyJobInfo.JobId; Check = $script:Check }); New-Progress $false 1 }
+
+            foreach ($Check in 1..30) {
+                $script:Check = $Check
+                $Result = Invoke-Status -Interval 60 -Max 3
+                $Result.CheckedSharePoint | Should -BeTrue
+                $Result.JobsPolled | Should -Be 3
+                $Result.AllCompleted | Should -BeFalse
+                Step-Clock
+            }
+            $Jobs = @($script:Polls | Group-Object Job)
+            $Jobs.Count | Should -Be 14
+            foreach ($Job in $Jobs) {
+                $Checks = @(0) + @($Job.Group.Check) + @(31)
+                for ($i = 1; $i -lt $Checks.Count; $i++) {
+                    ($Checks[$i] - $Checks[$i - 1]) | Should -BeLessOrEqual 5 -Because "job $($Job.Name) must be polled at least every ceil(14/3) checks"
+                }
+            }
+        }
+
+        It 'keeps rotating to the remaining jobs as others finish' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 6)) -RootItemCount 6
+            $script:Polls = [System.Collections.Generic.List[object]]::new()
+            $script:Check = 0
+            # Even jobs finish on their first poll, odd jobs never do.
+            Mock Get-CIPPSharePointCopyJobProgress {
+                $script:Polls.Add([pscustomobject]@{ Job = $CopyJobInfo.JobId; Check = $script:Check })
+                New-Progress ([int]($CopyJobInfo.JobId -split '-')[1] % 2 -eq 0) 1
+            }
+            foreach ($Check in 1..12) { $script:Check = $Check; $Result = Invoke-Status -Interval 60 -Max 2; Step-Clock }
+            foreach ($Even in '0-0', '0-2', '0-4') { @($script:Polls | Where-Object Job -EQ $Even).Count | Should -Be 1 }
+            foreach ($Odd in '0-1', '0-3', '0-5') {
+                $Checks = @($script:Polls | Where-Object Job -EQ $Odd | ForEach-Object Check)
+                # after the first pass (3 checks), each of the 3 unfinished jobs is polled at least every ceil(3/2) = 2 checks
+                @($Checks | Where-Object { $_ -gt 3 }).Count | Should -BeGreaterOrEqual 4
+            }
+            $Result.AllCompleted | Should -BeFalse
+        }
+
+        It 'returns the stored (unfinished) state inside the rate window even if SharePoint has since finished' {
+            $script:Progress['0-0'] = New-Progress $false 1
+            Invoke-Status -Interval 60 | Out-Null
+            foreach ($j in 0..2) { $script:Progress["0-$j"] = New-Progress $true 1 }
+            $Result = Invoke-Status -Interval 60
+            $Result.CheckedSharePoint | Should -BeFalse
+            $Result.AllCompleted | Should -BeFalse
+        }
+
+        It 'is never Completed while one job keeps failing to report, and fails it after five checks' {
+            foreach ($j in 0..1) { $script:Progress["0-$j"] = New-Progress $true 1 }
+            $script:Progress['0-2'] = { throw 'GetCopyJobProgress 429' }
+            foreach ($Check in 1..4) {
+                $Result = Invoke-Status
+                $Result.AllCompleted | Should -BeFalse
+                $Result.IsComplete | Should -BeFalse
+            }
+            $Result = Invoke-Status
+            $Result.State | Should -Be 'Failed'
+            $Result.AllCompleted | Should -BeFalse
+        }
+
+        It 'only gives up on five failures in a row, not five in total' {
+            $script:Progress['0-0'] = { throw 'GetCopyJobProgress 503' }
+            foreach ($Check in 1..4) { Invoke-Status | Out-Null }
+            $script:Progress['0-0'] = New-Progress $false 1
+            Invoke-Status | Out-Null
+            $script:Progress['0-0'] = { throw 'GetCopyJobProgress 503' }
+            foreach ($Check in 1..4) { (Invoke-Status).Recipients[0].IsComplete | Should -BeFalse }
+        }
+
+        It 'never completes a recipient from stored rows of another operation' {
+            $Other = '99999999-2222-3333-4444-555555555555'
+            foreach ($j in 0..2) {
+                $script:Store["$Other-js-0-000$j"] = [pscustomobject]@{ RowKey = "$Other-js-0-000$j"; RecipientIndex = 0; JobIndex = $j; IsFinal = $true; Failed = $false; ObjectsProcessed = 1 }
+            }
+            (Invoke-Status -Interval 60).AllCompleted | Should -BeFalse
+            # and inside the rate window, with nothing polled, still not complete
+            (Invoke-Status -Interval 60).AllCompleted | Should -BeFalse
+        }
+    }
+
     Context 'strict completion (OneDrive copy only)' {
         It 'fails a recipient whose job count does not match the root items, without polling it' {
             Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 2)) -RootItemCount 3
