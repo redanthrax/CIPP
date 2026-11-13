@@ -64661,7 +64661,7 @@
         "tags": [
           "Identity > Administration > Users"
         ],
-        "description": "Returns the state of a OneDrive copy started by ExecOneDriveCopyToUser: overall and per recipient (Queued, InProgress, Completed or Failed), with the number of files and bytes copied and any errors. Completed and Failed are final. Remove the leaver's licences only once State is Completed.",
+        "description": "Returns the state of a OneDrive copy started by ExecOneDriveCopyToUser: overall and per recipient (Queued, InProgress, Completed or Failed), with the number of files and bytes copied and any errors. Completed and Failed are final. SharePoint is checked at most once a minute per operation and for at most 100 unfinished copy jobs per call; within that minute the stored state is returned. Remove the leaver's licences only once State is Completed.",
         "parameters": [
           {
             "name": "OperationId",
@@ -64679,7 +64679,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Current state. Completed and Failed are final; remove the leaver's licences only when State is Completed (AllCompleted is true).",
+            "description": "Current state. Completed and Failed are final; remove the leaver's licences only when State is Completed (AllCompleted is true). SharePoint is checked at most once a minute per operation and at most 100 jobs per call, so a large copy needs several calls to reach Completed; poll until it does.",
             "content": {
               "application/json": {
                 "schema": {
@@ -64801,6 +64801,30 @@
                               }
                             }
                           }
+                        },
+                        "CheckedSharePoint": {
+                          "type": "boolean",
+                          "description": "False when SharePoint was checked for this operation less than 60 seconds ago; the stored state is returned instead."
+                        },
+                        "JobsPolled": {
+                          "type": "integer",
+                          "description": "Copy jobs polled by this call (at most 100, least recently polled first, so every job is reached over successive calls)."
+                        },
+                        "LastCheckedUtc": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time",
+                          "description": "When SharePoint was last checked for this operation."
+                        },
+                        "NextCheckAfterUtc": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time",
+                          "description": "A call before this time returns stored state without checking SharePoint."
                         },
                         "LastUpdatedUtc": {
                           "type": "string",

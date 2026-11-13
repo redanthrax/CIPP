@@ -1,4 +1,5 @@
-# Pester tests for Update-CIPPOneDriveCopyToUserStatus: per-recipient and overall state mapping
+# Pester tests for Update-CIPPOneDriveCopyToUserStatus: per-job polling, rate limit, rotation and state mapping.
+# The table is faked in memory so successive status calls see what earlier ones stored.
 
 BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
@@ -7,153 +8,243 @@ BeforeAll {
 
     function Get-CIPPTable { param($TableName) @{ TableName = $TableName } }
     function Get-CIPPAzDataTableEntity { param($Filter, $TableName) }
+    function Add-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $OperationType, $TableName) }
+    function Get-CIPPSharePointLibraryCopyOperation { param($TenantFilter, $OperationId, $TableName) }
+    function Get-CIPPSharePointCopyJobProgress { param($TenantFilter, $SourceSiteUrl, $CopyJobInfo) }
     function Update-CIPPSharePointLibraryCopyStatus { param($TenantFilter, $OperationId, $TableName) }
 
     . $FunctionPath
 
     $script:OpId = '11111111-2222-3333-4444-555555555555'
-    function New-OperationRow([object[]]$Recipients) {
-        [pscustomobject]@{
-            PartitionKey  = 'contoso.com'
-            RowKey        = $script:OpId
-            Kind          = 'Operation'
-            LeaverUPN     = 'jane@contoso.com'
-            StartedBy     = 'admin@partner.com'
-            StartedUtc    = '2026-11-13T00:00:00Z'
-            RootItemCount = 3
-            ExpectedBytes = 1510
-            Recipients    = (ConvertTo-Json -InputObject @($Recipients) -Compress -Depth 4)
+    function New-Recipient([int]$Index, [string]$Upn, [string]$StartError, [int]$JobCount = 3) {
+        [pscustomobject]@{ Index = $Index; UserPrincipalName = $Upn; FolderName = 'jane@contoso.com'; SubOperationId = "$($script:OpId)-r$Index"; JobCount = $JobCount; StartError = $StartError }
+    }
+    function Set-Operation([object[]]$Recipients) {
+        $script:Store = @{}
+        $script:Store[$script:OpId] = [pscustomobject]@{
+            PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverUPN = 'jane@contoso.com'
+            StartedBy = 'admin@partner.com'; StartedUtc = '2026-11-13T00:00:00Z'; RootItemCount = 3; ExpectedBytes = 1510
+            Recipients = (ConvertTo-Json -InputObject @($Recipients) -Compress -Depth 4)
         }
     }
-    function New-Recipient([int]$Index, [string]$Upn, [string]$StartError) {
-        [pscustomobject]@{ Index = $Index; UserPrincipalName = $Upn; FolderName = 'jane@contoso.com'; SubOperationId = "$($script:OpId)-r$Index"; JobCount = 3; StartError = $StartError }
+    # Progress per job: "<recipient>-<job>" -> object or scriptblock; default = still running.
+    function New-Progress([bool]$Complete, [int]$Objects = 1, [int]$Errors = 0, [string[]]$Messages = @()) {
+        [pscustomobject]@{ IsComplete = $Complete; ObjectsProcessed = $Objects; TotalExpectedObjects = 2; FilesCreated = $Objects; BytesProcessed = $Objects * 10; TotalErrors = $Errors; TotalWarnings = 0; ErrorMessages = $Messages; WarningMessages = @() }
     }
-    function New-Snapshot([string]$Status, [int]$Done, [int]$Objects = 0, [int]$Errors = 0) {
-        [pscustomobject]@{
-            Status = $Status; JobsComplete = $Done; JobsTotal = 3; ObjectsProcessed = $Objects; TotalExpectedObjects = 10
-            FilesCreated = $Objects; BytesProcessed = $Objects * 100; TotalErrors = $Errors
-            Errors = @(if ($Errors) { [pscustomobject]@{ Severity = 'Error'; Message = 'File: access denied' } }); Warnings = @()
-        }
+    function Invoke-Status([int]$Interval = 0, [int]$Max = 100) {
+        Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId -MinimumIntervalSeconds $Interval -MaxJobsPerCheck $Max
     }
 }
 
 Describe 'Update-CIPPOneDriveCopyToUserStatus' {
     BeforeEach {
-        $script:Row = New-OperationRow @((New-Recipient 0 'bob@contoso.com'))
-        Mock Get-CIPPAzDataTableEntity { $script:Row }
-        $script:Snapshots = @{ 0 = (New-Snapshot 'Processing' 0) }
-        Mock Update-CIPPSharePointLibraryCopyStatus { $script:Snapshots[[int]($OperationId -replace '.*-r', '')] }
+        Set-Operation @((New-Recipient 0 'bob@contoso.com'))
+        $script:Progress = @{}
+        Mock Get-CIPPAzDataTableEntity {
+            if ($Filter -match "RowKey eq '([^']+)'") { $script:Store[$Matches[1]] }
+            elseif ($Filter -match "RowKey ge '([^']+)' and RowKey lt '([^']+)'") {
+                $Low = $Matches[1]; $High = $Matches[2]
+                $script:Store.Values | Where-Object { [string]::CompareOrdinal($_.RowKey, $Low) -ge 0 -and [string]::CompareOrdinal($_.RowKey, $High) -lt 0 }
+            }
+        }
+        Mock Add-CIPPAzDataTableEntity {
+            foreach ($Item in @($Entity)) {
+                $Existing = $script:Store[$Item.RowKey]
+                if ($OperationType -eq 'UpsertMerge' -and $Existing) {
+                    foreach ($Key in $Item.Keys) { $Existing | Add-Member -NotePropertyName $Key -NotePropertyValue $Item[$Key] -Force }
+                } else {
+                    $script:Store[$Item.RowKey] = [pscustomobject]$Item
+                }
+            }
+        }
+        Mock Get-CIPPSharePointLibraryCopyOperation {
+            $Index = [int]($OperationId -replace '.*-r', '')
+            $Count = ($script:Store[$script:OpId].Recipients | ConvertFrom-Json | Where-Object Index -EQ $Index).JobCount
+            [pscustomobject]@{ SourceSiteUrl = 'https://contoso-my.sharepoint.com/personal/jane'; CopyJobInfos = @(0..($Count - 1) | ForEach-Object { [pscustomobject]@{ JobId = "$Index-$_" } }) }
+        }
+        Mock Get-CIPPSharePointCopyJobProgress {
+            $Value = $script:Progress[$CopyJobInfo.JobId]
+            if ($Value -is [scriptblock]) { & $Value } elseif ($Value) { $Value } else { New-Progress $false 0 }
+        }
+        Mock Update-CIPPSharePointLibraryCopyStatus { throw 'the library copy status must not be used' }
     }
 
     It 'maps <Case> to <Expected>' -ForEach @(
-        @{ Case = 'nothing processed yet'; Snapshot = { New-Snapshot 'Processing' 0 }; Expected = 'Queued'; Complete = $false }
-        @{ Case = 'jobs running'; Snapshot = { New-Snapshot 'Processing' 1 4 }; Expected = 'InProgress'; Complete = $false }
-        @{ Case = 'a failed job while others still run'; Snapshot = { New-Snapshot 'Failed' 1 4 1 }; Expected = 'InProgress'; Complete = $false }
-        @{ Case = 'every job done cleanly'; Snapshot = { New-Snapshot 'Completed' 3 10 }; Expected = 'Completed'; Complete = $true }
-        @{ Case = 'every job done with errors'; Snapshot = { New-Snapshot 'CompletedWithErrors' 3 9 1 }; Expected = 'Failed'; Complete = $true }
+        @{ Case = 'nothing processed yet'; Jobs = @{}; Expected = 'Queued'; Complete = $false }
+        @{ Case = 'jobs running'; Jobs = @{ '0-0' = 'running' }; Expected = 'InProgress'; Complete = $false }
+        @{ Case = 'a failed job while others still run'; Jobs = @{ '0-0' = 'errors' }; Expected = 'InProgress'; Complete = $false }
+        @{ Case = 'every job done cleanly'; Jobs = @{ '0-0' = 'done'; '0-1' = 'done'; '0-2' = 'done' }; Expected = 'Completed'; Complete = $true }
+        @{ Case = 'every job done, one with errors'; Jobs = @{ '0-0' = 'done'; '0-1' = 'errors'; '0-2' = 'done' }; Expected = 'Failed'; Complete = $true }
     ) {
-        $script:Snapshots[0] = & $Snapshot
-        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
-
+        foreach ($Key in $Jobs.Keys) {
+            $script:Progress[$Key] = switch ($Jobs[$Key]) {
+                'running' { New-Progress $false 2 }
+                'done' { New-Progress $true 2 }
+                'errors' { New-Progress $true 1 1 @('File: access denied') }
+            }
+        }
+        $Result = Invoke-Status
         $Result.Recipients[0].State | Should -Be $Expected
         $Result.Recipients[0].IsComplete | Should -Be $Complete
         $Result.State | Should -Be $Expected
         $Result.AllCompleted | Should -Be ($Expected -eq 'Completed')
-        Should -Invoke Update-CIPPSharePointLibraryCopyStatus -Times 1 -Exactly -ParameterFilter { $TableName -eq 'OneDriveCopyToUser' -and $OperationId -eq "$($script:OpId)-r0" }
+        Should -Invoke Get-CIPPSharePointLibraryCopyOperation -ParameterFilter { $TableName -eq 'OneDriveCopyToUser' -and $OperationId -eq "$($script:OpId)-r0" }
     }
 
     It 'reports item count, bytes and errors per recipient' {
-        $script:Snapshots[0] = New-Snapshot 'CompletedWithErrors' 3 9 1
-        $Recipient = (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).Recipients[0]
-        $Recipient.ItemsCopied | Should -Be 9
-        $Recipient.BytesCopied | Should -Be 900
+        $script:Progress['0-0'] = New-Progress $true 4
+        $script:Progress['0-1'] = New-Progress $true 5 1 @('File: access denied')
+        $script:Progress['0-2'] = New-Progress $true 1
+        $Recipient = (Invoke-Status).Recipients[0]
+        $Recipient.ItemsCopied | Should -Be 10
+        $Recipient.BytesCopied | Should -Be 100
         $Recipient.ErrorCount | Should -Be 1
         $Recipient.Errors | Should -Be @('File: access denied')
+        $Recipient.JobsComplete | Should -Be 3
     }
 
-    It 'is Completed only when every recipient is, and Failed once all are final with a failure' {
-        $script:Row = New-OperationRow @((New-Recipient 0 'bob@contoso.com'), (New-Recipient 1 'carol@contoso.com'))
-        $script:Snapshots = @{ 0 = (New-Snapshot 'Completed' 3 10); 1 = (New-Snapshot 'Processing' 1 2) }
-        (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).State | Should -Be 'InProgress'
+    It 'does not ask SharePoint again within the minimum interval, and returns the stored state' {
+        $script:Progress['0-0'] = New-Progress $false 2
+        $First = Invoke-Status -Interval 60
+        $First.CheckedSharePoint | Should -BeTrue
+        $First.JobsPolled | Should -Be 3
+        Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 3 -Exactly
 
-        $script:Snapshots[1] = New-Snapshot 'Completed' 3 10
-        (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).State | Should -Be 'Completed'
-
-        $script:Snapshots[1] = New-Snapshot 'CompletedWithErrors' 3 8 2
-        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
-        $Result.State | Should -Be 'Failed'
-        $Result.IsComplete | Should -BeTrue
-        $Result.AllCompleted | Should -BeFalse
+        $Second = Invoke-Status -Interval 60
+        $Second.CheckedSharePoint | Should -BeFalse
+        $Second.JobsPolled | Should -Be 0
+        $Second.Recipients[0].State | Should -Be 'InProgress'
+        $Second.Recipients[0].ObjectsProcessed | Should -Be 2
+        Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 3 -Exactly
+        Should -Invoke Get-CIPPSharePointLibraryCopyOperation -Times 1 -Exactly
     }
 
-    It 'reports a recipient that never started as Failed without polling it' {
-        $script:Row = New-OperationRow @((New-Recipient 0 'bob@contoso.com' 'Copy failed to start: Access denied'))
-        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
+    It 'checks again once the interval has passed' {
+        Invoke-Status -Interval 60 | Out-Null
+        $script:Store[$script:OpId].LastCheckedUnix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 61
+        (Invoke-Status -Interval 60).CheckedSharePoint | Should -BeTrue
+        Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 6 -Exactly
+    }
+
+    It 'polls at most MaxJobsPerCheck jobs per check, rotating so every job is reached, and is only Completed once all are confirmed' {
+        Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 5), (New-Recipient 1 'carol@contoso.com' $null 4))
+        foreach ($r in 0..1) { foreach ($j in 0..4) { $script:Progress["$r-$j"] = New-Progress $true 1 } }
+
+        $script:Seen = [System.Collections.Generic.List[string]]::new()
+        Mock Get-CIPPSharePointCopyJobProgress { $script:Seen.Add($CopyJobInfo.JobId); $script:Progress[$CopyJobInfo.JobId] }
+
+        $First = Invoke-Status -Max 4
+        $First.JobsPolled | Should -Be 4
+        $First.State | Should -Not -Be 'Completed'
+        $First.AllCompleted | Should -BeFalse
+
+        $Second = Invoke-Status -Max 4
+        $Second.JobsPolled | Should -Be 4
+        $Second.AllCompleted | Should -BeFalse
+
+        $Third = Invoke-Status -Max 4
+        $Third.JobsPolled | Should -Be 1
+        $Third.State | Should -Be 'Completed'
+        @($script:Seen | Sort-Object -Unique).Count | Should -Be 9
+        $script:Seen.Count | Should -Be 9 -Because 'a finished job is never polled again'
+    }
+
+    It 'polls the least recently polled unfinished jobs first' {
+        $script:Seen = [System.Collections.Generic.List[string]]::new()
+        Mock Get-CIPPSharePointCopyJobProgress { $script:Seen.Add($CopyJobInfo.JobId); New-Progress $false 1 }
+        Invoke-Status -Max 2 | Out-Null
+        $script:Store["$($script:OpId)-js-0-0000"].LastPolledUnix = 1
+        $script:Store["$($script:OpId)-js-0-0001"].LastPolledUnix = 5
+        Invoke-Status -Max 2 | Out-Null
+        $script:Seen | Should -Be @('0-0', '0-1', '0-2', '0-0')
+    }
+
+    It 'keeps a job unfinished through transient progress failures and fails it after five in a row' {
+        Mock Get-CIPPSharePointCopyJobProgress { throw 'GetCopyJobProgress 503 https://contoso-my.sharepoint.com/x' }
+        foreach ($i in 1..4) { (Invoke-Status).Recipients[0].IsComplete | Should -BeFalse }
+        $Result = Invoke-Status
         $Result.Recipients[0].State | Should -Be 'Failed'
-        $Result.Recipients[0].Message | Should -Be 'Copy failed to start: Access denied'
-        $Result.State | Should -Be 'Failed'
-        Should -Invoke Update-CIPPSharePointLibraryCopyStatus -Times 0 -Exactly
+        $Result.Recipients[0].Errors[0] | Should -BeLike 'Progress could not be read 5 times in a row*'
+        $Result.Recipients[0].Errors[0] | Should -Not -BeLike '*https://*'
+    }
+
+    It 'fails a job whose copy handle is missing' {
+        Mock Get-CIPPSharePointLibraryCopyOperation { [pscustomobject]@{ SourceSiteUrl = 'https://contoso-my.sharepoint.com/personal/jane'; CopyJobInfos = @([pscustomobject]@{ JobId = '0-0' }) } }
+        $script:Progress['0-0'] = New-Progress $true 1
+        $Result = Invoke-Status
+        $Result.Recipients[0].State | Should -Be 'Failed'
+        $Result.Recipients[0].Errors | Should -Contain 'SharePoint returned no copy job for this item.'
     }
 
     It 'aggregates <Case> to <Expected>' -ForEach @(
-        @{ Case = 'one completed, one never started'; Snaps = @{ 0 = 'Completed' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'Failed'; IsComplete = $true }
-        @{ Case = 'one never started, one still running'; Snaps = @{ 0 = 'Processing' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'InProgress'; IsComplete = $false }
-        @{ Case = 'one failed with errors, one still queued'; Snaps = @{ 0 = 'CompletedWithErrors'; 1 = 'Queued' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
-        @{ Case = 'all queued'; Snaps = @{ 0 = 'Queued'; 1 = 'Queued' }; StartErrors = @{}; Expected = 'Queued'; IsComplete = $false }
-        @{ Case = 'one queued, one completed'; Snaps = @{ 0 = 'Queued'; 1 = 'Completed' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
+        @{ Case = 'one completed, one never started'; Jobs = @{ 0 = 'done' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'Failed'; IsComplete = $true }
+        @{ Case = 'one never started, one still running'; Jobs = @{ 0 = 'running' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'InProgress'; IsComplete = $false }
+        @{ Case = 'one failed with errors, one still queued'; Jobs = @{ 0 = 'errors' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
+        @{ Case = 'all queued'; Jobs = @{}; StartErrors = @{}; Expected = 'Queued'; IsComplete = $false }
+        @{ Case = 'one queued, one completed'; Jobs = @{ 1 = 'done' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
     ) {
-        $script:Row = New-OperationRow @((New-Recipient 0 'bob@contoso.com' $StartErrors[0]), (New-Recipient 1 'carol@contoso.com' $StartErrors[1]))
-        $script:Snapshots = @{}
-        foreach ($Key in $Snaps.Keys) {
-            $script:Snapshots[$Key] = switch ($Snaps[$Key]) {
-                'Completed' { New-Snapshot 'Completed' 3 10 }
-                'CompletedWithErrors' { New-Snapshot 'CompletedWithErrors' 3 9 1 }
-                'Processing' { New-Snapshot 'Processing' 1 4 }
-                'Queued' { New-Snapshot 'Processing' 0 }
+        Set-Operation @((New-Recipient 0 'bob@contoso.com' $StartErrors[0]), (New-Recipient 1 'carol@contoso.com' $StartErrors[1]))
+        foreach ($r in $Jobs.Keys) {
+            foreach ($j in 0..2) {
+                $script:Progress["$r-$j"] = switch ($Jobs[$r]) {
+                    'done' { New-Progress $true 2 }
+                    'running' { New-Progress $false 2 }
+                    'errors' { New-Progress $true 1 1 @('x') }
+                }
             }
         }
-        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
+        $Result = Invoke-Status
         $Result.State | Should -Be $Expected
         $Result.IsComplete | Should -Be $IsComplete
         $Result.AllCompleted | Should -BeFalse
         @($Result.Recipients).Count | Should -Be 2
     }
 
+    It 'reports a recipient that never started as Failed without polling it' {
+        Set-Operation @((New-Recipient 0 'bob@contoso.com' 'Copy failed to start: Access denied'))
+        $Result = Invoke-Status
+        $Result.Recipients[0].State | Should -Be 'Failed'
+        $Result.Recipients[0].Message | Should -Be 'Copy failed to start: Access denied'
+        $Result.State | Should -Be 'Failed'
+        Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 0 -Exactly
+    }
+
     It 'is never Completed for an operation with no recipient records' {
-        $script:Row = New-OperationRow @()
-        $script:Row.Recipients = $null
-        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
+        $script:Store[$script:OpId].Recipients = $null
+        $Result = Invoke-Status
         $Result.AllCompleted | Should -BeFalse
         $Result.State | Should -Not -Be 'Completed'
     }
 
-    It 'does not treat a recipient whose jobs all report done but whose sub-operation is still Processing as Completed' {
-        $script:Snapshots[0] = New-Snapshot 'Processing' 3 10
-        (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).AllCompleted | Should -BeFalse
-    }
-
     It 'lets a missing per-recipient record surface as not found (so the licence gate keeps the licences)' {
-        Mock Update-CIPPSharePointLibraryCopyStatus { throw [System.Management.Automation.ItemNotFoundException]::new('Library copy operation not found.') }
-        { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
+        Mock Get-CIPPSharePointLibraryCopyOperation { $null }
+        { Invoke-Status } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
     }
 
     It 'refuses a row in the table that is not an operation' {
-        $script:Row.Kind = $null
-        { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
+        $script:Store[$script:OpId].Kind = $null
+        { Invoke-Status } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
     }
 
     It 'only reads the operation in the requested tenant' {
-        Update-CIPPOneDriveCopyToUserStatus -TenantFilter "o'brien.com" -OperationId $script:OpId | Out-Null
+        Update-CIPPOneDriveCopyToUserStatus -TenantFilter "o'brien.com" -OperationId $script:OpId -ErrorAction SilentlyContinue 2>$null | Out-Null
         Should -Invoke Get-CIPPAzDataTableEntity -ParameterFilter { $Filter -eq "PartitionKey eq 'o''brien.com' and RowKey eq '$($script:OpId)'" }
     }
 
     It 'throws ItemNotFoundException for an unknown operation' {
-        Mock Get-CIPPAzDataTableEntity { $null }
-        { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
+        $script:Store = @{}
+        { Invoke-Status } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
     }
 
     It 'throws ArgumentException for a malformed OperationId without querying storage' {
         { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId "x' or PartitionKey ne '" } | Should -Throw -ExceptionType ([System.ArgumentException])
         Should -Invoke Get-CIPPAzDataTableEntity -Times 0 -Exactly
+    }
+
+    It 'defaults to a 60 second interval and 100 jobs per check' {
+        $Command = Get-Command Update-CIPPOneDriveCopyToUserStatus
+        $Command.Parameters.Keys | Should -Contain 'MinimumIntervalSeconds'
+        (Invoke-Status -Interval 60).CheckedSharePoint | Should -BeTrue
+        (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).CheckedSharePoint | Should -BeFalse
     }
 }

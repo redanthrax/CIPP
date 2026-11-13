@@ -5,7 +5,7 @@ function Invoke-ListOneDriveCopyToUser {
     .ROLE
         Identity.OneDrive.Read
     .DESCRIPTION
-        Returns the state of a OneDrive copy started by ExecOneDriveCopyToUser: overall and per recipient (Queued, InProgress, Completed or Failed), with the number of files and bytes copied and any errors. Completed and Failed are final. Remove the leaver's licences only once State is Completed.
+        Returns the state of a OneDrive copy started by ExecOneDriveCopyToUser: overall and per recipient (Queued, InProgress, Completed or Failed), with the number of files and bytes copied and any errors. Completed and Failed are final. SharePoint is checked at most once a minute per operation and for at most 100 unfinished copy jobs per call; within that minute the stored state is returned. Remove the leaver's licences only once State is Completed.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
