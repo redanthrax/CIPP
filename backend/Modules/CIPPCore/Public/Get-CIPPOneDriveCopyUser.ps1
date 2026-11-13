@@ -30,7 +30,8 @@ function Get-CIPPOneDriveCopyUser {
     $Id = ([string]$UserId).Trim()
 
     $IsGuid = $Id -match '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-    $IsUpn = $Id -match '^[^\s/\\?#%@]+@[^\s/\\?#%@]+$'
+    # '#' is allowed before the '@' because guest UPNs carry '#EXT#' there; it is escaped below.
+    $IsUpn = $Id -match '^[^\s/\\?%@]+@[^\s/\\?#%@]+$'
     if (-not ($IsGuid -or $IsUpn)) {
         throw [System.ArgumentException]::new("$Label '$Id' is not a user principal name or object id.")
     }

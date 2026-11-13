@@ -50,6 +50,29 @@ Describe 'Get-CIPPOneDriveCopyUser' {
         { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId $Id -Kind $Kind } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage $Message
     }
 
+    It 'accepts and escapes a <Case> UPN' -ForEach @(
+        @{ Case = 'guest (#EXT#)'; Id = 'jo_fabrikam.com#EXT#@contoso.onmicrosoft.com'; Escaped = 'jo_fabrikam.com%23EXT%23%40contoso.onmicrosoft.com' }
+        @{ Case = 'apostrophe and plus'; Id = "o'brien+it@contoso.com"; Escaped = 'o%27brien%2Bit%40contoso.com' }
+        @{ Case = 'unicode'; Id = 'zoë@contoso.com'; Escaped = 'zo%C3%AB%40contoso.com' }
+    ) {
+        $null = Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId $Id
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like "https://graph.microsoft.com/v1.0/users/$Escaped`?*" }
+    }
+
+    It 'accepts an object id' {
+        $null = Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId '0f9f1b2c-1111-2222-3333-444455556666'
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like 'https://graph.microsoft.com/v1.0/users/0f9f1b2c-1111-2222-3333-444455556666?*' }
+    }
+
+    It 'still refuses <Case>' -ForEach @(
+        @{ Case = 'a # in the domain'; Id = 'bob@contoso.com#x' }
+        @{ Case = 'a query string'; Id = 'bob@contoso.com?$select=x' }
+        @{ Case = 'a second @'; Id = 'a@b@contoso.com' }
+    ) {
+        { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId $Id } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*is not a user principal name or object id*'
+        Should -Invoke New-GraphGetRequest -Times 0 -Exactly
+    }
+
     It 'does not require a licence for the leaver' {
         $script:Plans = $script:Unlicensed
         (Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' -Kind Leaver).HasOneDrivePlan | Should -BeFalse
