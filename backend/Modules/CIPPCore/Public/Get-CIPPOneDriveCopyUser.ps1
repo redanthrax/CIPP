@@ -57,7 +57,8 @@ function Get-CIPPOneDriveCopyUser {
     # in its UPN and/or an externalUserState, so either one also marks the recipient as a guest.
     $IsExternal = [string]$User.userType -eq 'Guest' -or $Upn -match '#EXT#@' -or -not [string]::IsNullOrWhiteSpace([string]$User.externalUserState)
     if ($Kind -eq 'Recipient' -and $IsExternal) {
-        throw [System.ArgumentException]::new("Recipient $Upn is a guest. Only members of the tenant can receive the copy.")
+        $Why = if ([string]$User.userType -eq 'Guest') { 'is a guest' } else { 'is an account from another organisation (an invited user, or one synced in from another tenant)' }
+        throw [System.ArgumentException]::new("Recipient $Upn $Why. Only members of this tenant can receive the copy.")
     }
 
     $HasOneDrivePlan = @($User.assignedPlans | Where-Object { $_.service -eq 'SharePoint' -and $_.capabilityStatus -eq 'Enabled' }).Count -gt 0

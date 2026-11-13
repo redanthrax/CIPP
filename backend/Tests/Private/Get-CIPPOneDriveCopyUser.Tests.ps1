@@ -101,7 +101,7 @@ Describe 'Get-CIPPOneDriveCopyUser' {
         @{ Case = 'Member with a pending invitation'; UserType = 'Member'; Upn = 'jo@contoso.com'; State = 'PendingAcceptance' }
     ) {
         $script:UserType = $UserType; $script:Upn = $Upn; $script:ExternalState = $State
-        { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' -Kind Recipient } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*is a guest*'
+        { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' -Kind Recipient } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage "Recipient $Upn is an account from another organisation (an invited user, or one synced in from another tenant). Only members of this tenant can receive the copy."
         Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*/drive?*' }
     }
 
