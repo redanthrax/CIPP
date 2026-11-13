@@ -37,7 +37,7 @@
                       "properties": {
                         "UserPrincipalName": { "type": "string" },
                         "FolderName": { "type": "string" },
-                        "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Failed is only reported once every job for the recipient has finished (or the copy never started), and means at least one item was not copied." },
+                        "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Completed needs one copy job per root item, each polled and confirmed finished with no errors. Failed is final: the copy never started, SharePoint returned a different number of jobs than root items, or every job has finished and at least one reported errors, failed to report progress five times in a row, or finished without copying anything although its item was not empty." },
                         "IsComplete": { "type": "boolean" },
                         "JobsComplete": { "type": "integer" },
                         "JobsTotal": { "type": "integer" },
@@ -45,8 +45,8 @@
                         "ObjectsProcessed": { "type": "integer", "format": "int64", "description": "Files and folders processed, as SharePoint reports them." },
                         "TotalExpectedObjects": { "type": ["integer", "null"], "format": "int64" },
                         "BytesCopied": { "type": "integer", "format": "int64" },
-                        "ErrorCount": { "type": "integer", "format": "int64" },
-                        "Errors": { "type": "array", "items": { "type": "string" }, "description": "Sanitised: URLs, paths and file names are redacted." },
+                        "ErrorCount": { "type": "integer", "format": "int64", "description": "Highest error count each job has reported, summed; a failed job without a count adds one." },
+                        "Errors": { "type": "array", "items": { "type": "string" }, "description": "Every distinct error reported across checks (up to 25 per job, 50 per recipient). Sanitised: URLs, paths and file names are redacted." },
                         "Warnings": { "type": "array", "items": { "type": "string" } },
                         "Message": { "type": "string" }
                       }

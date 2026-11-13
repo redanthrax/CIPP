@@ -19,11 +19,12 @@ BeforeAll {
     function New-Recipient([int]$Index, [string]$Upn, [string]$StartError, [int]$JobCount = 3) {
         [pscustomobject]@{ Index = $Index; UserPrincipalName = $Upn; FolderName = 'jane@contoso.com'; SubOperationId = "$($script:OpId)-r$Index"; JobCount = $JobCount; StartError = $StartError }
     }
-    function Set-Operation([object[]]$Recipients) {
+    function Set-Operation([object[]]$Recipients, [int]$RootItemCount = 3, [bool[]]$Empty = @()) {
         $script:Store = @{}
         $script:Store[$script:OpId] = [pscustomobject]@{
             PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverUPN = 'jane@contoso.com'
-            StartedBy = 'admin@partner.com'; StartedUtc = '2026-11-13T00:00:00Z'; RootItemCount = 3; ExpectedBytes = 1510
+            StartedBy = 'admin@partner.com'; StartedUtc = '2026-11-13T00:00:00Z'; RootItemCount = $RootItemCount; ExpectedBytes = 1510
+            RootItemEmpty = (ConvertTo-Json -InputObject @($Empty) -Compress)
             Recipients = (ConvertTo-Json -InputObject @($Recipients) -Compress -Depth 4)
         }
     }
@@ -127,7 +128,7 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
     }
 
     It 'polls at most MaxJobsPerCheck jobs per check, rotating so every job is reached, and is only Completed once all are confirmed' {
-        Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 5), (New-Recipient 1 'carol@contoso.com' $null 4))
+        Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 5), (New-Recipient 1 'carol@contoso.com' $null 5)) -RootItemCount 5
         foreach ($r in 0..1) { foreach ($j in 0..4) { $script:Progress["$r-$j"] = New-Progress $true 1 } }
 
         $script:Seen = [System.Collections.Generic.List[string]]::new()
@@ -143,10 +144,10 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
         $Second.AllCompleted | Should -BeFalse
 
         $Third = Invoke-Status -Max 4
-        $Third.JobsPolled | Should -Be 1
+        $Third.JobsPolled | Should -Be 2
         $Third.State | Should -Be 'Completed'
-        @($script:Seen | Sort-Object -Unique).Count | Should -Be 9
-        $script:Seen.Count | Should -Be 9 -Because 'a finished job is never polled again'
+        @($script:Seen | Sort-Object -Unique).Count | Should -Be 10
+        $script:Seen.Count | Should -Be 10 -Because 'a finished job is never polled again'
     }
 
     It 'polls the least recently polled unfinished jobs first' {
@@ -246,5 +247,56 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
         $Command.Parameters.Keys | Should -Contain 'MinimumIntervalSeconds'
         (Invoke-Status -Interval 60).CheckedSharePoint | Should -BeTrue
         (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).CheckedSharePoint | Should -BeFalse
+    }
+    Context 'strict completion (OneDrive copy only)' {
+        It 'fails a recipient whose job count does not match the root items, without polling it' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 2)) -RootItemCount 3
+            $Result = Invoke-Status
+            $Result.Recipients[0].State | Should -Be 'Failed'
+            $Result.Recipients[0].Message | Should -BeLike '*2 copy job(s) for 3 root item(s)*'
+            $Result.AllCompleted | Should -BeFalse
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 0 -Exactly
+        }
+
+        It 'keeps the highest error count and every error message across checks' {
+            $script:Progress['0-0'] = New-Progress $false 1 2 @('File: locked')
+            Invoke-Status | Out-Null
+            $script:Progress['0-0'] = New-Progress $false 2 0 @('File: too long')
+            Invoke-Status | Out-Null
+            $script:Progress['0-0'] = New-Progress $true 3 1 @()
+            $script:Progress['0-1'] = New-Progress $true 1
+            $script:Progress['0-2'] = New-Progress $true 1
+            $Recipient = (Invoke-Status).Recipients[0]
+            $Recipient.State | Should -Be 'Failed'
+            $Recipient.ErrorCount | Should -Be 2
+            $Recipient.Errors | Should -Be @('File: locked', 'File: too long')
+        }
+
+        It 'fails a job that finishes with nothing processed when its item was not empty' {
+            $script:Progress['0-0'] = New-Progress $true 0
+            $script:Progress['0-1'] = New-Progress $true 1
+            $script:Progress['0-2'] = New-Progress $true 1
+            $Recipient = (Invoke-Status).Recipients[0]
+            $Recipient.State | Should -Be 'Failed'
+            $Recipient.Errors | Should -Contain 'The copy job finished without copying anything.'
+        }
+
+        It 'accepts a job with nothing processed when its item was <Case> at start' -ForEach @(
+            @{ Case = 'an empty folder or a 0-byte file'; Empty = @($true, $false, $false); Expected = 'Completed' }
+            @{ Case = 'not recorded'; Empty = @(); Expected = 'Failed' }
+        ) {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com')) -Empty $Empty
+            $script:Progress['0-0'] = New-Progress $true 0
+            $script:Progress['0-1'] = New-Progress $true 1
+            $script:Progress['0-2'] = New-Progress $true 1
+            (Invoke-Status).Recipients[0].State | Should -Be $Expected
+        }
+
+        It 'does not let a later reading lower the counts' {
+            $script:Progress['0-0'] = New-Progress $false 5
+            Invoke-Status | Out-Null
+            $script:Progress['0-0'] = New-Progress $false 2
+            (Invoke-Status).Recipients[0].ItemsCopied | Should -Be 5
+        }
     }
 }

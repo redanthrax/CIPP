@@ -276,4 +276,31 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
     }
+    It 'marks a recipient Failed when SharePoint returns fewer jobs than root items' {
+        $Params = $script:Params.Clone()
+        $Params.Recipients = @('bob@contoso.com', 'carol@contoso.com')
+        Mock Invoke-CIPPSharePointCreateCopyJobs { @([pscustomobject]@{ JobId = 'only-one'; JobQueueUri = 'https://q.queue.core.windows.net/x'; EncryptionKey = 'k' }) } -ParameterFilter { $DestinationUri -like '*bob_contoso_com*' }
+        $Result = Start-CIPPOneDriveCopyToUser @Params
+        $Bob = $Result.Recipients | Where-Object UserPrincipalName -EQ 'bob@contoso.com'
+        $Bob.State | Should -Be 'Failed'
+        $Bob.Message | Should -BeLike '*returned 1 copy job(s) for 3 root item(s)*'
+        ($Result.Recipients | Where-Object UserPrincipalName -EQ 'carol@contoso.com').State | Should -Be 'Queued'
+        Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
+            ($Entity.Recipients | ConvertFrom-Json | Where-Object UserPrincipalName -EQ 'bob@contoso.com').StartError -like '*1 copy job(s) for 3*'
+        }
+    }
+
+    It 'records which root items were empty at start, in job order' {
+        $script:Children = @(
+            [pscustomobject]@{ name = 'Full'; size = 10; folder = @{ childCount = 2 } }
+            [pscustomobject]@{ name = 'EmptyFolder'; size = 0; folder = @{ childCount = 0 } }
+            [pscustomobject]@{ name = 'zero.txt'; size = 0; file = @{} }
+            [pscustomobject]@{ name = 'one.txt'; size = 1; file = @{} }
+            [pscustomobject]@{ name = 'Notebook'; size = 0; package = @{ type = 'oneNote' } }
+        )
+        Start-CIPPOneDriveCopyToUser @script:Params | Out-Null
+        Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
+            (@($Entity.RootItemEmpty | ConvertFrom-Json) -join ',') -eq 'False,True,True,False,False'
+        }
+    }
 }

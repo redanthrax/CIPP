@@ -192,6 +192,13 @@ function Start-CIPPOneDriveCopyToUser {
                 }
             }
             $Record.JobCount = $Jobs.Count
+            # One job per root item, in order, is what the status check relies on; anything else means
+            # some items have no job, so this recipient cannot be confirmed complete.
+            if ($Jobs.Count -ne $SourceUris.Count) {
+                $Record.StartError = "Copy failed to start: SharePoint returned $($Jobs.Count) copy job(s) for $($SourceUris.Count) root item(s)."
+                Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -sev Error `
+                    -message "OneDrive copy $OperationId for $($Target.UserPrincipalName): $($Record.StartError)"
+            }
             Set-CIPPSharePointLibraryCopyOperation -TenantFilter $TenantFilter -OperationId $SubOperationId -TableName $TableName -Entity @{
                 SourceSiteUrl     = $Source.SiteUrl
                 SourceSiteName    = $Source.UserPrincipalName
@@ -233,6 +240,11 @@ function Start-CIPPOneDriveCopyToUser {
         StartedUtc            = $StartedUtc
         StartedUnix           = [int64]$StartedAt.ToUnixTimeSeconds()
         RootItemCount         = $RootItems.Count
+        # Per root item, in job order: true for an empty folder or a 0-byte file, the only items whose
+        # job may legitimately finish having processed nothing.
+        RootItemEmpty         = (ConvertTo-Json -Compress -InputObject @($RootItems | ForEach-Object {
+                    [bool](($_.folder -and [int64]($_.folder.childCount ?? -1) -eq 0) -or ($_.file -and [int64]($_.size ?? -1) -eq 0))
+                }))
         ExpectedBytes         = $SourceBytes
         IncludeVersionHistory = $IncludeVersionHistory
         Expiry                = $Expiry

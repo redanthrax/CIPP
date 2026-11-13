@@ -59,6 +59,9 @@ function Update-CIPPOneDriveCopyToUserStatus {
         if ([string]::IsNullOrWhiteSpace([string]$Value)) { return @() }
         try { @([string]$Value | ConvertFrom-Json) } catch { @() }
     }
+    $RootItemCount = [int]($Operation.RootItemCount ?? 0)
+    # Which root items were empty at start (job order). Unknown means not empty.
+    $RootItemEmpty = @(& $ReadList $Operation.RootItemEmpty)
 
     # --- Stored job states ------------------------------------------------------------------------
     $StatePrefix = "$OperationId-js-"
@@ -103,20 +106,27 @@ function Update-CIPPOneDriveCopyToUserStatus {
         @($List)
     }
     # Folds one progress reading into a job's stored state and decides whether the job is final.
+    # Counts only ever grow and error messages accumulate, so a later reading that has lost an
+    # earlier error (SharePoint's log queue is read, not kept) cannot hide it.
     $MergeProgress = {
         param($State, $Progress)
         $State.PollFailures = 0
-        $State.ObjectsProcessed = [int64]($Progress.ObjectsProcessed ?? 0)
-        $State.TotalExpectedObjects = $Progress.TotalExpectedObjects
-        $State.FilesCreated = [int64]($Progress.FilesCreated ?? 0)
-        $State.BytesProcessed = [int64]($Progress.BytesProcessed ?? 0)
-        $State.TotalErrors = [int64]($Progress.TotalErrors ?? 0)
-        $State.TotalWarnings = [int64]($Progress.TotalWarnings ?? 0)
-        $State.ErrorMessages = @(& $AddMessages @() $Progress.ErrorMessages)
-        $State.WarningMessages = @(& $AddMessages @() $Progress.WarningMessages)
+        $State.ObjectsProcessed = [Math]::Max([int64]$State.ObjectsProcessed, [int64]($Progress.ObjectsProcessed ?? 0))
+        if ($null -ne $Progress.TotalExpectedObjects) { $State.TotalExpectedObjects = [int64]$Progress.TotalExpectedObjects }
+        $State.FilesCreated = [Math]::Max([int64]$State.FilesCreated, [int64]($Progress.FilesCreated ?? 0))
+        $State.BytesProcessed = [Math]::Max([int64]$State.BytesProcessed, [int64]($Progress.BytesProcessed ?? 0))
+        $State.TotalErrors = [Math]::Max([int64]$State.TotalErrors, [int64]($Progress.TotalErrors ?? 0))
+        $State.TotalWarnings = [Math]::Max([int64]$State.TotalWarnings, [int64]($Progress.TotalWarnings ?? 0))
+        $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages $Progress.ErrorMessages)
+        $State.WarningMessages = @(& $AddMessages $State.WarningMessages $Progress.WarningMessages)
         if ($Progress.IsComplete) {
             $State.IsFinal = $true
-            $State.Failed = $State.TotalErrors -gt 0
+            $State.Failed = $State.TotalErrors -gt 0 -or $State.ErrorMessages.Count -gt 0
+            # A job that finishes having processed nothing copied nothing, unless its item was empty.
+            if ($State.ObjectsProcessed -eq 0 -and -not ($State.JobIndex -lt $RootItemEmpty.Count -and $RootItemEmpty[$State.JobIndex] -eq $true)) {
+                $State.Failed = $true
+                $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @('The copy job finished without copying anything.'))
+            }
         }
     }
 
@@ -133,6 +143,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
 
         $Candidates = foreach ($Record in $Records) {
             if ($Record.StartError -or [int]$Record.JobCount -le 0) { continue }
+            if ($RootItemCount -gt 0 -and [int]$Record.JobCount -ne $RootItemCount) { continue }
             for ($j = 0; $j -lt [int]$Record.JobCount; $j++) {
                 $State = $States["$([int]$Record.Index)-$j"]
                 if ($State -and $State.IsFinal) { continue }
@@ -243,9 +254,16 @@ function Update-CIPPOneDriveCopyToUserStatus {
         $Entry.Errors = @($Known | ForEach-Object { $_.ErrorMessages } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First $MaxMessagesPerRecipient)
         $Entry.Warnings = @($Known | ForEach-Object { $_.WarningMessages } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First $MaxMessagesPerRecipient)
 
-        # Completed only when every job has been polled and confirmed finished.
+        # Completed only when every job has been polled and confirmed finished, and there was one job
+        # per root item.
         $AllJobsDone = $Entry.JobsTotal -gt 0 -and $Known.Count -eq $Entry.JobsTotal -and $Entry.JobsComplete -eq $Entry.JobsTotal
-        if ($AllJobsDone -and $FailedJobs.Count -eq 0) {
+        if ($RootItemCount -gt 0 -and $Entry.JobsTotal -ne $RootItemCount) {
+            $Entry.State = 'Failed'
+            $Entry.IsComplete = $true
+            if ($Entry.ErrorCount -lt 1) { $Entry.ErrorCount = 1 }
+            $Entry.Message = "SharePoint has $($Entry.JobsTotal) copy job(s) for $RootItemCount root item(s); the copy cannot be confirmed complete."
+            $Entry.Errors = @(@($Entry.Message) + @($Entry.Errors))
+        } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0) {
             $Entry.State = 'Completed'
             $Entry.IsComplete = $true
             $Entry.Message = 'Copy completed.'
