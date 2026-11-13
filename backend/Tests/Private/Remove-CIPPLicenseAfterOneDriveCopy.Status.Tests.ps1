@@ -10,6 +10,7 @@ BeforeAll {
     function Get-CippTable { param($tablename) @{ TableName = $tablename } }
     function Get-CIPPAzDataTableEntity { param($Filter, $TableName) }
     function Add-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $OperationType, $TableName) }
+    function Update-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $OperationType, $TableName) }
     function Update-AzDataTableEntity { param($Entity, [switch]$Force, $TableName) }
     function Get-CIPPSharePointLibraryCopyOperation { param($TenantFilter, $OperationId, $TableName) }
     function Get-CIPPSharePointCopyJobProgress { param($TenantFilter, $SourceSiteUrl, $CopyJobInfo) }
@@ -25,7 +26,7 @@ Describe 'Licence gate with rate-limited, capped status checks' {
     BeforeEach {
         $script:Store = @{}
         $script:Store[$script:OpId] = [pscustomobject]@{
-            PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverId = $script:UserId; LeaverUPN = 'pat@contoso.com'
+            PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; ETag = 'etag-initial'; LeaverId = $script:UserId; LeaverUPN = 'pat@contoso.com'
             RootItemCount = 250; ExpectedBytes = 250
             Recipients = (ConvertTo-Json -Compress -InputObject @([pscustomobject]@{ Index = 0; UserPrincipalName = 'bob@contoso.com'; FolderName = 'pat@contoso.com'; SubOperationId = "$($script:OpId)-r0"; JobCount = 250 }))
         }
@@ -41,6 +42,17 @@ Describe 'Licence gate with rate-limited, capped status checks' {
                 $Existing = $script:Store[$Item.RowKey]
                 if ($OperationType -eq 'UpsertMerge' -and $Existing) { foreach ($Key in $Item.Keys) { $Existing | Add-Member -NotePropertyName $Key -NotePropertyValue $Item[$Key] -Force } }
                 else { $script:Store[$Item.RowKey] = [pscustomobject]$Item }
+                $script:Store[$Item.RowKey] | Add-Member -NotePropertyName ETag -NotePropertyValue ([guid]::NewGuid().Guid) -Force
+            }
+        }
+        Mock Update-CIPPAzDataTableEntity {
+            # Fake If-Match: the update applies only when the entity carries the stored row's ETag.
+            foreach ($Item in @($Entity)) {
+                $Existing = $script:Store[$Item.RowKey]
+                if (-not $Existing) { throw 'ResourceNotFound' }
+                if ($Force -ne $true -and [string]$Item.ETag -ne [string]$Existing.ETag) { throw 'UpdateConditionNotSatisfied (412)' }
+                foreach ($Prop in $Item.PSObject.Properties) { if ($Prop.Name -ne 'ETag') { $Existing | Add-Member -NotePropertyName $Prop.Name -NotePropertyValue $Prop.Value -Force } }
+                $Existing | Add-Member -NotePropertyName ETag -NotePropertyValue ([guid]::NewGuid().Guid) -Force
             }
         }
         Mock Get-CIPPSharePointLibraryCopyOperation { [pscustomobject]@{ SourceSiteUrl = 'https://contoso-my.sharepoint.com/personal/pat'; CopyJobInfos = @(0..249 | ForEach-Object { [pscustomobject]@{ JobId = "$_" } }) } }

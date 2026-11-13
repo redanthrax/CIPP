@@ -9,6 +9,7 @@ BeforeAll {
     function Get-CIPPTable { param($TableName) @{ TableName = $TableName } }
     function Get-CIPPAzDataTableEntity { param($Filter, $TableName) }
     function Add-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $OperationType, $TableName) }
+    function Update-CIPPAzDataTableEntity { param($Entity, [switch]$Force, $OperationType, $TableName) }
     function Get-CIPPSharePointLibraryCopyOperation { param($TenantFilter, $OperationId, $TableName) }
     function Get-CIPPSharePointCopyJobProgress { param($TenantFilter, $SourceSiteUrl, $CopyJobInfo) }
     function Update-CIPPSharePointLibraryCopyStatus { param($TenantFilter, $OperationId, $TableName) }
@@ -22,7 +23,7 @@ BeforeAll {
     function Set-Operation([object[]]$Recipients, [int]$RootItemCount = 3, [bool[]]$Empty = @()) {
         $script:Store = @{}
         $script:Store[$script:OpId] = [pscustomobject]@{
-            PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverUPN = 'jane@contoso.com'
+            PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; ETag = 'etag-initial'; LeaverUPN = 'jane@contoso.com'
             StartedBy = 'admin@partner.com'; StartedUtc = '2026-11-13T00:00:00Z'; RootItemCount = $RootItemCount; ExpectedBytes = 1510
             RootItemEmpty = (ConvertTo-Json -InputObject @($Empty) -Compress)
             Recipients = (ConvertTo-Json -InputObject @($Recipients) -Compress -Depth 4)
@@ -53,9 +54,22 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
                 $Existing = $script:Store[$Item.RowKey]
                 if ($OperationType -eq 'UpsertMerge' -and $Existing) {
                     foreach ($Key in $Item.Keys) { $Existing | Add-Member -NotePropertyName $Key -NotePropertyValue $Item[$Key] -Force }
+                    $Existing | Add-Member -NotePropertyName ETag -NotePropertyValue ([guid]::NewGuid().Guid) -Force
                 } else {
-                    $script:Store[$Item.RowKey] = [pscustomobject]$Item
+                    $Row = [pscustomobject]$Item
+                    $Row | Add-Member -NotePropertyName ETag -NotePropertyValue ([guid]::NewGuid().Guid) -Force
+                    $script:Store[$Item.RowKey] = $Row
                 }
+            }
+        }
+        Mock Update-CIPPAzDataTableEntity {
+            # Fake If-Match: the update applies only when the entity carries the stored row's ETag.
+            foreach ($Item in @($Entity)) {
+                $Existing = $script:Store[$Item.RowKey]
+                if (-not $Existing) { throw 'ResourceNotFound' }
+                if ($Force -ne $true -and [string]$Item.ETag -ne [string]$Existing.ETag) { throw 'UpdateConditionNotSatisfied (412)' }
+                foreach ($Prop in $Item.PSObject.Properties) { if ($Prop.Name -ne 'ETag') { $Existing | Add-Member -NotePropertyName $Prop.Name -NotePropertyValue $Prop.Value -Force } }
+                $Existing | Add-Member -NotePropertyName ETag -NotePropertyValue ([guid]::NewGuid().Guid) -Force
             }
         }
         Mock Get-CIPPSharePointLibraryCopyOperation {
@@ -118,6 +132,77 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
         $Second.Recipients[0].ObjectsProcessed | Should -Be 2
         Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 3 -Exactly
         Should -Invoke Get-CIPPSharePointLibraryCopyOperation -Times 1 -Exactly
+    }
+
+    Context 'ETag-claimed check' {
+        It 'lets exactly one of two concurrent callers poll; the other returns the stored state' {
+            $script:Progress['0-0'] = New-Progress $true 2
+            # Both callers read the operation row before either claims it.
+            $Snapshot = $script:Store[$script:OpId].PSObject.Copy()
+            Mock Get-CIPPAzDataTableEntity { $Snapshot.PSObject.Copy() } -ParameterFilter { $Filter -match "RowKey eq '$($script:OpId)'" }
+
+            $First = Invoke-Status 60
+            $Second = Invoke-Status 60
+
+            $First.CheckedSharePoint | Should -BeTrue
+            $First.JobsPolled | Should -Be 3
+            $Second.CheckedSharePoint | Should -BeFalse
+            $Second.JobsPolled | Should -Be 0
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 3 -Exactly
+            # The loser reports what the winner stored.
+            $Second.Recipients[0].JobsComplete | Should -Be 1
+            $Second.Recipients[0].State | Should -Be $First.Recipients[0].State
+        }
+
+        It 'never treats an ETag mismatch as a claim' {
+            $script:Store[$script:OpId].ETag = 'someone-else-wrote-this'
+            $Stale = $script:Store[$script:OpId].PSObject.Copy()
+            $Stale.ETag = 'etag-initial'
+            Mock Get-CIPPAzDataTableEntity { $Stale } -ParameterFilter { $Filter -match "RowKey eq '$($script:OpId)'" }
+            $Result = Invoke-Status 60
+            $Result.CheckedSharePoint | Should -BeFalse
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+            $script:Store[$script:OpId].PSObject.Properties.Name | Should -Not -Contain 'LastCheckedUnix'
+        }
+
+        It 'does not poll when the operation row has no ETag' {
+            $script:Store[$script:OpId].PSObject.Properties.Remove('ETag')
+            $Result = Invoke-Status 60
+            $Result.CheckedSharePoint | Should -BeFalse
+            Should -Invoke Update-CIPPAzDataTableEntity -Times 0 -Exactly
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 0 -Exactly
+        }
+
+        It 'does not poll when the claim write fails for another reason' {
+            Mock Update-CIPPAzDataTableEntity { throw 'Storage 503' }
+            (Invoke-Status 60).CheckedSharePoint | Should -BeFalse
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -Times 0 -Exactly
+        }
+
+        It 'claims with an If-Match update (no -Force) of the operation row only' {
+            $null = Invoke-Status 60
+            Should -Invoke Update-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
+                $Entity.RowKey -eq $script:OpId -and $Entity.ETag -eq 'etag-initial' -and $Entity.LastCheckedUnix -gt 0 -and -not $Force
+            }
+        }
+
+        It 'a lost claim only delays: the next call after the window polls' {
+            $Snapshot = $script:Store[$script:OpId].PSObject.Copy()
+            Mock Get-CIPPAzDataTableEntity { $Snapshot.PSObject.Copy() } -ParameterFilter { $Filter -match "RowKey eq '$($script:OpId)'" }
+            $null = Invoke-Status 60
+            (Invoke-Status 60).CheckedSharePoint | Should -BeFalse
+            # The window passes; a fresh read of the row carries the winner's ETag.
+            Mock Get-CIPPAzDataTableEntity { $Row = $script:Store[$script:OpId].PSObject.Copy(); $Row.LastCheckedUnix = 1; $Row } -ParameterFilter { $Filter -match "RowKey eq '$($script:OpId)'" }
+            (Invoke-Status 60).CheckedSharePoint | Should -BeTrue
+        }
+
+        It 'stops starting polls once three quarters of the window has gone' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' -JobCount 3))
+            $script:Progress['0-0'] = { Start-Sleep -Milliseconds 1700; New-Progress $false 1 }
+            $Result = Invoke-Status 2
+            $Result.JobsPolled | Should -Be 1
+        }
     }
 
     It 'checks again once the interval has passed' {

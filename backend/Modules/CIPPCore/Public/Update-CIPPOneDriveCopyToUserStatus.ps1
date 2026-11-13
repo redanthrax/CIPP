@@ -5,8 +5,11 @@ function Update-CIPPOneDriveCopyToUserStatus {
     .DESCRIPTION
         Each copy job (one per root item per recipient) has its own state row in the OneDriveCopyToUser
         table, so a status call never has to poll everything:
-          - SharePoint is asked at most once per MinimumIntervalSeconds per operation. Inside that
-            window the stored job states are returned without calling SharePoint.
+          - SharePoint is asked at most once per MinimumIntervalSeconds per operation. The check is
+            claimed with an ETag-conditional update of the operation row, so only one call per window
+            polls; every other call (inside the window, or losing the claim) returns the stored job
+            states without calling SharePoint. The winner stops starting polls after three quarters of
+            the window.
           - A check polls at most MaxJobsPerCheck unfinished jobs, least recently polled first, so
             every job is reached over successive checks however many there are.
         Jobs are polled with Get-CIPPSharePointCopyJobProgress, the library copy's parser; the library
@@ -149,11 +152,38 @@ function Update-CIPPOneDriveCopyToUserStatus {
     $LastChecked = [int64]($Operation.LastCheckedUnix ?? 0)
     $Polled = 0
     $CheckedSharePoint = $false
+    $Claimed = $false
     if ($Now - $LastChecked -ge $MinimumIntervalSeconds) {
+        # Claim the check with an ETag-conditional update of the operation row (Update-CIPPAzDataTableEntity
+        # without -Force sends If-Match). Of several calls that read the same row, exactly one wins; the
+        # others get a precondition failure and return the stored state without polling, so two calls
+        # never poll and overwrite the same jobs. Any failure, and a row read without an ETag, counts as
+        # not claimed (fail closed). Losing only delays a check: the winner moves LastCheckedUnix on, and
+        # the first call after the next window claims again.
+        $ETag = $Operation.ETag
+        if ($null -ne $ETag -and -not [string]::IsNullOrWhiteSpace([string]$ETag)) {
+            try {
+                Update-CIPPAzDataTableEntity @Table -Entity ([PSCustomObject]@{
+                        PartitionKey    = $Operation.PartitionKey ?? $TenantFilter
+                        RowKey          = $OperationId
+                        ETag            = $ETag
+                        LastCheckedUnix = $Now
+                    })
+                $Claimed = $true
+            } catch {
+                Write-Information "OneDrive copy $OperationId status: another check holds this window ($($_.Exception.Message))"
+            }
+        } else {
+            Write-Information "OneDrive copy $OperationId status: operation row has no ETag; not checking SharePoint"
+        }
+    }
+    if ($Claimed) {
         $CheckedSharePoint = $true
         $LastChecked = $Now
-        # Claimed before polling, so concurrent status calls inside the window read the stored states.
-        Add-CIPPAzDataTableEntity @Table -Entity @{ PartitionKey = $TenantFilter; RowKey = $OperationId; LastCheckedUnix = $Now } -OperationType UpsertMerge
+        # The winner stops starting new polls before the window ends, so the next window's winner never
+        # polls the same jobs while this call is still writing them.
+        $PollBudgetSeconds = if ($MinimumIntervalSeconds -gt 0) { [Math]::Max(1.0, $MinimumIntervalSeconds * 0.75) } else { [double]::MaxValue }
+        $PollClock = [System.Diagnostics.Stopwatch]::StartNew()
 
         $Candidates = foreach ($Record in $Records) {
             if ($Record.StartError -or [int]$Record.JobCount -le 0) { continue }
@@ -168,12 +198,14 @@ function Update-CIPPOneDriveCopyToUserStatus {
 
         $Changed = [System.Collections.Generic.List[object]]::new()
         foreach ($Group in @($Selected | Group-Object { [int]$_.Record.Index })) {
+            if ($PollClock.Elapsed.TotalSeconds -ge $PollBudgetSeconds) { break }
             $Record = $Group.Group[0].Record
             $Sub = Get-CIPPSharePointLibraryCopyOperation -TenantFilter $TenantFilter -OperationId $Record.SubOperationId -TableName $TableName
             if (-not $Sub) {
                 throw [System.Management.Automation.ItemNotFoundException]::new("Copy jobs for $($Record.UserPrincipalName) not found.")
             }
             foreach ($Candidate in $Group.Group) {
+                if ($PollClock.Elapsed.TotalSeconds -ge $PollBudgetSeconds) { break }
                 $Key = "$([int]$Record.Index)-$($Candidate.JobIndex)"
                 $State = $States[$Key] ?? (& $NewState ([int]$Record.Index) $Candidate.JobIndex)
                 $Handle = @($Sub.CopyJobInfos)[$Candidate.JobIndex]
