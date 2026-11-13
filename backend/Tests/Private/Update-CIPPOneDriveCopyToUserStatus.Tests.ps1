@@ -30,7 +30,7 @@ BeforeAll {
     }
     # Progress per job: "<recipient>-<job>" -> object or scriptblock; default = still running.
     function New-Progress([bool]$Complete, [int]$Objects = 1, [int]$Errors = 0, [string[]]$Messages = @()) {
-        [pscustomobject]@{ IsComplete = $Complete; ObjectsProcessed = $Objects; TotalExpectedObjects = 2; FilesCreated = $Objects; BytesProcessed = $Objects * 10; TotalErrors = $Errors; TotalWarnings = 0; ErrorMessages = $Messages; WarningMessages = @() }
+        [pscustomobject]@{ IsComplete = $Complete; JobState = if ($Complete) { 0 } else { 4 }; ObjectsProcessed = $Objects; TotalExpectedObjects = 2; FilesCreated = $Objects; BytesProcessed = $Objects * 10; TotalErrors = $Errors; TotalWarnings = 0; ErrorMessages = $Messages; WarningMessages = @() }
     }
     function Invoke-Status([int]$Interval = 0, [int]$Max = 100) {
         Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId -MinimumIntervalSeconds $Interval -MaxJobsPerCheck $Max
@@ -402,6 +402,37 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
             $script:Progress['0-1'] = New-Progress $true 1
             $script:Progress['0-2'] = New-Progress $true 1
             (Invoke-Status).Recipients[0].State | Should -Be $Expected
+        }
+
+        It 'does not finish a job cleanly when SharePoint did not confirm it (JobState unknown), and fails it after five such checks' {
+            # What the shared parser returns when GetCopyJobProgress fails but the queue log shows progress.
+            $script:Progress['0-0'] = [pscustomobject]@{ IsComplete = $true; JobState = -1; ObjectsProcessed = 5; TotalExpectedObjects = 9; FilesCreated = 5; BytesProcessed = 50; TotalErrors = 0; TotalWarnings = 0; ErrorMessages = @(); WarningMessages = @() }
+            $script:Progress['0-1'] = New-Progress $true 2
+            $script:Progress['0-2'] = New-Progress $true 2
+            for ($i = 1; $i -le 4; $i++) {
+                $Result = Invoke-Status
+                $Result.State | Should -Be 'InProgress'
+                $Result.Recipients[0].JobsComplete | Should -Be 2
+            }
+            $Result = Invoke-Status
+            $Result.State | Should -Be 'Failed'
+            $Result.Recipients[0].Errors | Should -Contain 'SharePoint did not confirm the copy job finished after 5 checks in a row.'
+        }
+
+        It 'completes once SharePoint confirms the job after an unconfirmed reading' {
+            $script:Progress['0-0'] = [pscustomobject]@{ IsComplete = $true; JobState = -1; ObjectsProcessed = 1; TotalExpectedObjects = 2; FilesCreated = 1; BytesProcessed = 10; TotalErrors = 0; TotalWarnings = 0; ErrorMessages = @(); WarningMessages = @() }
+            $script:Progress['0-1'] = New-Progress $true 2
+            $script:Progress['0-2'] = New-Progress $true 2
+            (Invoke-Status).State | Should -Be 'InProgress'
+            $script:Progress['0-0'] = New-Progress $true 2
+            (Invoke-Status).State | Should -Be 'Completed'
+        }
+
+        It 'still fails a job on an unconfirmed reading that reports errors' {
+            $script:Progress['0-0'] = [pscustomobject]@{ IsComplete = $true; JobState = -1; ObjectsProcessed = 1; TotalExpectedObjects = 2; FilesCreated = 0; BytesProcessed = 0; TotalErrors = 1; TotalWarnings = 0; ErrorMessages = @('File: access denied'); WarningMessages = @() }
+            $script:Progress['0-1'] = New-Progress $true 2
+            $script:Progress['0-2'] = New-Progress $true 2
+            (Invoke-Status).State | Should -Be 'Failed'
         }
 
         It 'does not let a later reading lower the counts' {

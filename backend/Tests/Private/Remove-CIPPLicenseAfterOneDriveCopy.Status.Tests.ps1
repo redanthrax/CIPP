@@ -44,7 +44,7 @@ Describe 'Licence gate with rate-limited, capped status checks' {
             }
         }
         Mock Get-CIPPSharePointLibraryCopyOperation { [pscustomobject]@{ SourceSiteUrl = 'https://contoso-my.sharepoint.com/personal/pat'; CopyJobInfos = @(0..249 | ForEach-Object { [pscustomobject]@{ JobId = "$_" } }) } }
-        Mock Get-CIPPSharePointCopyJobProgress { [pscustomobject]@{ IsComplete = $true; ObjectsProcessed = 1; FilesCreated = 1; BytesProcessed = 1; TotalErrors = 0; ErrorMessages = @(); WarningMessages = @() } }
+        Mock Get-CIPPSharePointCopyJobProgress { [pscustomobject]@{ IsComplete = $true; JobState = 0; ObjectsProcessed = 1; FilesCreated = 1; BytesProcessed = 1; TotalErrors = 0; ErrorMessages = @(); WarningMessages = @() } }
         Mock Remove-CIPPLicense { 'Removed licenses for pat@contoso.com.' }
         Mock Update-AzDataTableEntity { }
         Mock Write-LogMessage { }

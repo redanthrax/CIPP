@@ -111,7 +111,14 @@ function Update-CIPPOneDriveCopyToUserStatus {
     # earlier error (SharePoint's log queue is read, not kept) cannot hide it.
     $MergeProgress = {
         param($State, $Progress)
-        $State.PollFailures = 0
+        # The shared parser also calls a job complete when SharePoint's progress call failed (JobState
+        # unknown, -1) but the job's queue log showed some progress. That only means the job was
+        # running, so here a job may finish cleanly only on an explicit JobState 0 from SharePoint; a
+        # reading that reports errors still fails it. Anything else counts as an unreadable check.
+        $JobStateKnown = $null -ne $Progress.JobState -and [int]$Progress.JobState -eq 0
+        $ReportsErrors = [int64]($Progress.TotalErrors ?? 0) -gt 0 -or @($Progress.ErrorMessages | Where-Object { $_ }).Count -gt 0
+        $Unconfirmed = $Progress.IsComplete -and -not $JobStateKnown -and -not $ReportsErrors
+        if ($Unconfirmed) { $State.PollFailures++ } else { $State.PollFailures = 0 }
         $State.ObjectsProcessed = [Math]::Max([int64]$State.ObjectsProcessed, [int64]($Progress.ObjectsProcessed ?? 0))
         if ($null -ne $Progress.TotalExpectedObjects) { $State.TotalExpectedObjects = [int64]$Progress.TotalExpectedObjects }
         $State.FilesCreated = [Math]::Max([int64]$State.FilesCreated, [int64]($Progress.FilesCreated ?? 0))
@@ -120,7 +127,13 @@ function Update-CIPPOneDriveCopyToUserStatus {
         $State.TotalWarnings = [Math]::Max([int64]$State.TotalWarnings, [int64]($Progress.TotalWarnings ?? 0))
         $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages $Progress.ErrorMessages)
         $State.WarningMessages = @(& $AddMessages $State.WarningMessages $Progress.WarningMessages)
-        if ($Progress.IsComplete) {
+        if ($Unconfirmed) {
+            if ($State.PollFailures -ge $MaxPollFailures) {
+                $State.IsFinal = $true
+                $State.Failed = $true
+                $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @("SharePoint did not confirm the copy job finished after $MaxPollFailures checks in a row."))
+            }
+        } elseif ($Progress.IsComplete) {
             $State.IsFinal = $true
             $State.Failed = $State.TotalErrors -gt 0 -or $State.ErrorMessages.Count -gt 0
             # A job that finishes having processed nothing copied nothing, unless its item was empty.
