@@ -95,6 +95,53 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
         Should -Invoke Update-CIPPSharePointLibraryCopyStatus -Times 0 -Exactly
     }
 
+    It 'aggregates <Case> to <Expected>' -ForEach @(
+        @{ Case = 'one completed, one never started'; Snaps = @{ 0 = 'Completed' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'Failed'; IsComplete = $true }
+        @{ Case = 'one never started, one still running'; Snaps = @{ 0 = 'Processing' }; StartErrors = @{ 1 = 'Copy failed to start: x' }; Expected = 'InProgress'; IsComplete = $false }
+        @{ Case = 'one failed with errors, one still queued'; Snaps = @{ 0 = 'CompletedWithErrors'; 1 = 'Queued' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
+        @{ Case = 'all queued'; Snaps = @{ 0 = 'Queued'; 1 = 'Queued' }; StartErrors = @{}; Expected = 'Queued'; IsComplete = $false }
+        @{ Case = 'one queued, one completed'; Snaps = @{ 0 = 'Queued'; 1 = 'Completed' }; StartErrors = @{}; Expected = 'InProgress'; IsComplete = $false }
+    ) {
+        $script:Row = New-OperationRow @((New-Recipient 0 'bob@contoso.com' $StartErrors[0]), (New-Recipient 1 'carol@contoso.com' $StartErrors[1]))
+        $script:Snapshots = @{}
+        foreach ($Key in $Snaps.Keys) {
+            $script:Snapshots[$Key] = switch ($Snaps[$Key]) {
+                'Completed' { New-Snapshot 'Completed' 3 10 }
+                'CompletedWithErrors' { New-Snapshot 'CompletedWithErrors' 3 9 1 }
+                'Processing' { New-Snapshot 'Processing' 1 4 }
+                'Queued' { New-Snapshot 'Processing' 0 }
+            }
+        }
+        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
+        $Result.State | Should -Be $Expected
+        $Result.IsComplete | Should -Be $IsComplete
+        $Result.AllCompleted | Should -BeFalse
+        @($Result.Recipients).Count | Should -Be 2
+    }
+
+    It 'is never Completed for an operation with no recipient records' {
+        $script:Row = New-OperationRow @()
+        $script:Row.Recipients = $null
+        $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId
+        $Result.AllCompleted | Should -BeFalse
+        $Result.State | Should -Not -Be 'Completed'
+    }
+
+    It 'does not treat a recipient whose jobs all report done but whose sub-operation is still Processing as Completed' {
+        $script:Snapshots[0] = New-Snapshot 'Processing' 3 10
+        (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId).AllCompleted | Should -BeFalse
+    }
+
+    It 'lets a missing per-recipient record surface as not found (so the licence gate keeps the licences)' {
+        Mock Update-CIPPSharePointLibraryCopyStatus { throw [System.Management.Automation.ItemNotFoundException]::new('Library copy operation not found.') }
+        { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
+    }
+
+    It 'refuses a row in the table that is not an operation' {
+        $script:Row.Kind = $null
+        { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
+    }
+
     It 'only reads the operation in the requested tenant' {
         Update-CIPPOneDriveCopyToUserStatus -TenantFilter "o'brien.com" -OperationId $script:OpId | Out-Null
         Should -Invoke Get-CIPPAzDataTableEntity -ParameterFilter { $Filter -eq "PartitionKey eq 'o''brien.com' and RowKey eq '$($script:OpId)'" }

@@ -139,6 +139,76 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
     }
 
+    It 'names the folder exactly after a <Case> leaver UPN and escapes it in every URI' -ForEach @(
+        @{ Case = 'guest'; Upn = 'jo_fabrikam.com#EXT#@contoso.onmicrosoft.com'; Escaped = 'jo_fabrikam.com%23EXT%23%40contoso.onmicrosoft.com' }
+        @{ Case = 'apostrophe and plus'; Upn = "o'brien+it@contoso.com"; Escaped = 'o%27brien%2Bit%40contoso.com' }
+        @{ Case = 'unicode'; Upn = 'zoë@contoso.com'; Escaped = 'zo%C3%AB%40contoso.com' }
+    ) {
+        $Leaver = New-TestUser 'jane'
+        $Leaver.UserPrincipalName = $Upn
+        $script:Users[$Upn] = $Leaver
+        $Params = $script:Params.Clone()
+        $Params.Leaver = $Upn
+        $script:Upn = $Upn
+        $script:Escaped = $Escaped
+        Mock New-GraphPOSTRequest { throw 'nameAlreadyExists: Name already exists' }
+        Mock New-GraphGetRequest { [pscustomobject]@{ id = 'existing'; name = $script:Upn; folder = @{} } } -ParameterFilter { $uri -like '*/root:/*' }
+
+        $Result = Start-CIPPOneDriveCopyToUser @Params
+
+        $Result.FolderName | Should -BeExactly $Upn
+        Should -Invoke New-GraphPOSTRequest -Times 1 -Exactly -ParameterFilter { ($body | ConvertFrom-Json).name -ceq $script:Upn }
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like "https://graph.microsoft.com/v1.0/drives/drive-bob/root:/$($script:Escaped)?*" }
+        Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 1 -Exactly -ParameterFilter {
+            $DestinationUri -ceq "https://contoso-my.sharepoint.com/personal/bob_contoso_com/Documents/$($script:Escaped)"
+        }
+    }
+
+    It 'escapes root item names in the source URIs' {
+        $script:Children = @([pscustomobject]@{ id = 'i1'; name = "Q1 #2 50% o'clock+ü.docx"; size = 1; file = @{} })
+        Start-CIPPOneDriveCopyToUser @script:Params | Out-Null
+        Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -ParameterFilter {
+            $ExportObjectUris[0] -ceq 'https://contoso-my.sharepoint.com/personal/jane_contoso_com/Documents/Q1%20%232%2050%25%20o%27clock%2B%C3%BC.docx'
+        }
+    }
+
+    It 'refuses the leaver as a recipient when one is given by UPN and the other by object id' {
+        $script:Users['id-jane'] = $script:Users['jane@contoso.com']
+        $Params = $script:Params.Clone()
+        $Params.Recipients = @('id-jane')
+        { Start-CIPPOneDriveCopyToUser @Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*is the leaver*'
+        Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+    }
+
+    It 'copies once to a recipient given both by UPN and by object id' {
+        $script:Users['id-bob'] = $script:Users['bob@contoso.com']
+        $Params = $script:Params.Clone()
+        $Params.Recipients = @('bob@contoso.com', 'id-bob')
+        $Result = Start-CIPPOneDriveCopyToUser @Params
+        @($Result.Recipients).Count | Should -Be 1
+        Should -Invoke New-GraphPOSTRequest -Times 1 -Exactly
+    }
+
+    It 'does not treat a non-conflict folder creation error as an existing folder' {
+        Mock New-GraphPOSTRequest { throw 'accessDenied: Access denied' }
+        { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw '*Access denied*'
+        Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*/root:/*' }
+        Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
+    }
+
+    It 'checks free space against the leaver total for every recipient' {
+        $Params = $script:Params.Clone()
+        $Params.Recipients = @('bob@contoso.com', 'carol@contoso.com')
+        $script:Users['carol@contoso.com'] = New-TestUser 'carol' -Remaining 1509
+        { Start-CIPPOneDriveCopyToUser @Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*carol@contoso.com does not have enough space: the copy needs 1510 bytes and 1509 are free*'
+        Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+    }
+
+    It 'warns, but starts, when a recipient quota cannot be read' {
+        $script:Users['bob@contoso.com'].QuotaRemaining = $null
+        (Start-CIPPOneDriveCopyToUser @script:Params).Warnings | Should -BeLike '*could not be read*'
+    }
+
     It 'refuses when the recipient has a file named like the folder' {
         Mock New-GraphPOSTRequest { throw 'nameAlreadyExists: Name already exists' }
         Mock New-GraphGetRequest { [pscustomobject]@{ id = 'a-file'; name = 'jane@contoso.com'; file = @{} } } -ParameterFilter { $uri -like '*/root:/*' }

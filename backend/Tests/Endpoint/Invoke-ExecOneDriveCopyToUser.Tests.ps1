@@ -40,6 +40,31 @@ Describe 'Endpoint roles' {
         (Get-Content $Path -Raw) -match '\.ROLE\s*\r?\n\s*([A-Za-z0-9.]+)' | Should -BeTrue
         $Matches[1] | Should -Be $Role
     }
+
+    # Test-CIPPAccess grants an endpoint when any permission of the caller's custom role matches the
+    # endpoint's .ROLE as a regex ($Permission -match $APIRole). Check that rule against every entrypoint.
+    It 'a custom role holding only <Permission> reaches exactly <Expected>' -ForEach @(
+        @{ Permission = 'Identity.OneDrive.ReadWrite'; Expected = @('Invoke-ExecOneDriveCopyToUser', 'Invoke-ListOneDriveCopyToUser') }
+        @{ Permission = 'Identity.OneDrive.Read'; Expected = @('Invoke-ListOneDriveCopyToUser') }
+    ) {
+        $EntrypointRoot = Join-Path $RepoRoot 'Modules/CIPPHTTP/Public/Entrypoints'
+        $Granted = @(Get-ChildItem -Path $EntrypointRoot -Recurse -Filter 'Invoke-*.ps1' | ForEach-Object {
+                if ((Get-Content $_.FullName -Raw) -match '\.ROLE\s*\r?\n\s*([A-Za-z0-9.*]+)') {
+                    $Role = $Matches[1]
+                    if ($Permission -match $Role) { $_.BaseName }
+                }
+            } | Sort-Object)
+        $Granted | Should -Be $Expected
+    }
+
+    It 'no existing endpoint role is satisfied by the new permissions other than the two new endpoints' {
+        $EntrypointRoot = Join-Path $RepoRoot 'Modules/CIPPHTTP/Public/Entrypoints'
+        $Others = @(Get-ChildItem -Path $EntrypointRoot -Recurse -Filter 'Invoke-*.ps1' |
+                Where-Object { $_.BaseName -notin @('Invoke-ExecOneDriveCopyToUser', 'Invoke-ListOneDriveCopyToUser') } |
+                ForEach-Object { if ((Get-Content $_.FullName -Raw) -match '\.ROLE\s*\r?\n\s*([A-Za-z0-9.*]+)') { $Matches[1] } })
+        $Others.Count | Should -BeGreaterThan 100
+        @($Others | Where-Object { 'Identity.OneDrive.ReadWrite' -match $_ }) | Should -BeNullOrEmpty
+    }
 }
 
 Describe 'Invoke-ExecOneDriveCopyToUser' {
