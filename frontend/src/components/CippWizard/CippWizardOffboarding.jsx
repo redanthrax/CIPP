@@ -154,6 +154,7 @@ export const CippWizardOffboarding = (props) => {
       formControl.setValue('AccessAutomap', null)
       formControl.setValue('AccessSendAs', null)
       formControl.setValue('AccessSendOnBehalf', null)
+      formControl.setValue('OneDriveCopyTo', null)
       formControl.setValue('forward', null)
       formControl.setValue('OOO', '')
     }
@@ -517,6 +518,33 @@ export const CippWizardOffboarding = (props) => {
                 label="Grant OneDrive Full Access"
                 type="autoComplete"
                 placeholder="Leave blank if not needed"
+                formControl={formControl}
+                multi
+                api={{
+                  tenantFilter: currentTenant ? currentTenant.value : undefined,
+                  labelField: (option) => `${option.displayName} (${option.userPrincipalName})`,
+                  valueField: 'id',
+                  url: '/api/ListGraphRequest',
+                  dataKey: 'Results',
+                  queryKey: `Offboarding-Users-${currentTenant ? currentTenant.value : 'default'}`,
+                  data: {
+                    Endpoint: 'users',
+                    manualPagination: true,
+                    $select: 'id,userPrincipalName,displayName',
+                    $count: true,
+                    $orderby: 'displayName',
+                    $top: 999,
+                  },
+                }}
+              />
+              <CippFormComponent
+                sx={{ m: 1 }}
+                name="OneDriveCopyTo"
+                label="Copy OneDrive to user(s)"
+                disabled={!!deleteUser}
+                type="autoComplete"
+                placeholder="Leave blank if not needed"
+                helperText="Copies the user's OneDrive into a folder named after their UPN in each selected user's OneDrive. Existing files are kept. If Remove Licenses is on, licences are only removed once the copy completes."
                 formControl={formControl}
                 multi
                 api={{
