@@ -13,7 +13,7 @@
               "description": "The tenant's default domain or tenant ID. Must name one tenant; the leaver and every recipient are looked up in it. Use the same value when polling ListOneDriveCopyToUser."
             },
             "leaver": {
-              "description": "UPN or object id of the user whose OneDrive is copied. A string or a {label,value} object.",
+              "description": "UPN or object id of the user whose OneDrive is copied. The account must already be blocked from signing in (accountEnabled false). A string or a {label,value} object.",
               "oneOf": [
                 { "type": "string" },
                 { "$ref": "#/components/schemas/LabelValue" }
@@ -77,7 +77,7 @@
       }
     },
     "400": {
-      "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
+      "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
       "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
     },
     "500": {

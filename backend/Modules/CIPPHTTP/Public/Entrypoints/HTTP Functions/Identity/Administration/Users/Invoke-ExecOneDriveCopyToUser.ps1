@@ -5,7 +5,7 @@ function Invoke-ExecOneDriveCopyToUser {
     .ROLE
         Identity.OneDrive.ReadWrite
     .DESCRIPTION
-        Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN at the root of each recipient's OneDrive, without overwriting anything already there (KeepBoth on name conflicts). The leaver and recipients must be in tenantFilter; each recipient needs a OneDrive licence, a provisioned OneDrive and enough free space. Returns an OperationId; poll ListOneDriveCopyToUser with it until State is Completed before removing the leaver's licences.
+        Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN at the root of each recipient's OneDrive, without overwriting anything already there (KeepBoth on name conflicts). The leaver must already be blocked from signing in. The leaver and recipients must be in tenantFilter; each recipient needs a OneDrive licence, a provisioned OneDrive and enough free space. Returns an OperationId; poll ListOneDriveCopyToUser with it until State is Completed before removing the leaver's licences.
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)

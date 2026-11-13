@@ -32,6 +32,8 @@ export const CippWizardOffboarding = (props) => {
   const disableForwarding = useWatch({ control: formControl.control, name: 'disableForwarding' })
   const deleteUser = useWatch({ control: formControl.control, name: 'DeleteUser' })
   const convertToShared = useWatch({ control: formControl.control, name: 'ConvertToShared' })
+  const oneDriveCopyTo = useWatch({ control: formControl.control, name: 'OneDriveCopyTo' })
+  const oneDriveCopySelected = Array.isArray(oneDriveCopyTo) ? oneDriveCopyTo.length > 0 : !!oneDriveCopyTo
 
   // The HaloPSA ticket box is only meaningful when that integration is configured.
   const integrationSettings = ApiGetCall({
@@ -124,6 +126,13 @@ export const CippWizardOffboarding = (props) => {
       formControl.setValue('KeepCopy', false)
     }
   }, [disableForwarding, formControl])
+
+  // The OneDrive copy only runs for a blocked account, so it turns Disable sign in on and keeps it on
+  useEffect(() => {
+    if (oneDriveCopySelected) {
+      formControl.setValue('DisableSignIn', true)
+    }
+  }, [oneDriveCopySelected, formControl])
 
   // Clear every field the UI disables when deleting the user, so submitted values match what is shown
   useEffect(() => {
@@ -338,7 +347,7 @@ export const CippWizardOffboarding = (props) => {
                 label="Disable Sign in"
                 type="switch"
                 formControl={formControl}
-                disabled={!!deleteUser}
+                disabled={!!deleteUser || oneDriveCopySelected}
               />
               <CippFormComponent
                 name="ClearImmutableId"
@@ -544,7 +553,7 @@ export const CippWizardOffboarding = (props) => {
                 disabled={!!deleteUser}
                 type="autoComplete"
                 placeholder="Leave blank if not needed"
-                helperText="Copies the user's OneDrive into a folder named after their UPN in each selected user's OneDrive. Existing files are kept. If Remove Licenses is on, licences are only removed once the copy completes."
+                helperText="Copies the user's OneDrive into a folder named after their UPN in each selected user's OneDrive. Existing files are kept. Turns on Disable Sign in, which the copy needs. If Remove Licenses is on, licences are only removed once the copy completes."
                 formControl={formControl}
                 multi
                 api={{

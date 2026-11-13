@@ -33441,8 +33441,16 @@
                   "Action": {
                     "type": "string"
                   },
+                  "DisableSignIn": {
+                    "type": "boolean",
+                    "description": "The OneDrive copy only starts for a blocked account, so it needs Disable sign in in the same run."
+                  },
                   "forward": {
                     "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "OneDriveCopyTo": {
+                    "type": "string",
+                    "description": "The OneDrive copy only starts for a blocked account, so it needs Disable sign in in the same run."
                   },
                   "OOO": {
                     "type": "string"
@@ -33768,7 +33776,7 @@
         "tags": [
           "Identity > Administration > Users"
         ],
-        "description": "Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN at the root of each recipient's OneDrive, without overwriting anything already there (KeepBoth on name conflicts). The leaver and recipients must be in tenantFilter; each recipient needs a OneDrive licence, a provisioned OneDrive and enough free space. Returns an OperationId; poll ListOneDriveCopyToUser with it until State is Completed before removing the leaver's licences.",
+        "description": "Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN at the root of each recipient's OneDrive, without overwriting anything already there (KeepBoth on name conflicts). The leaver must already be blocked from signing in. The leaver and recipients must be in tenantFilter; each recipient needs a OneDrive licence, a provisioned OneDrive and enough free space. Returns an OperationId; poll ListOneDriveCopyToUser with it until State is Completed before removing the leaver's licences.",
         "requestBody": {
           "required": true,
           "content": {
@@ -33787,7 +33795,7 @@
                         "$ref": "#/components/schemas/LabelValue"
                       }
                     ],
-                    "description": "UPN or object id of the user whose OneDrive is copied. A string or a {label,value} object.",
+                    "description": "UPN or object id of the user whose OneDrive is copied. The account must already be blocked from signing in (accountEnabled false). A string or a {label,value} object.",
                     "oneOf": [
                       {
                         "type": "string"
@@ -33924,7 +33932,7 @@
             "description": "Forbidden - caller lacks the required RBAC role"
           },
           "400": {
-            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
+            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
             "content": {
               "application/json": {
                 "schema": {

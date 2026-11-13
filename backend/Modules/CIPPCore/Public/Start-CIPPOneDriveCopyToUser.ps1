@@ -3,7 +3,8 @@ function Start-CIPPOneDriveCopyToUser {
     .SYNOPSIS
         Copies a leaver's OneDrive root contents into a folder named after the leaver's UPN in each recipient's OneDrive.
     .DESCRIPTION
-        Everything is checked before anything is written: the leaver and every recipient are resolved in
+        Everything is checked before anything is written: the leaver must already be blocked from signing
+        in (accountEnabled false), and the leaver and every recipient are resolved in
         $TenantFilter, each recipient must have a OneDrive licence, a OneDrive on the same host as the
         leaver's, and enough free quota for the leaver's files. Any refusal throws ArgumentException
         naming every problem, and nothing is created.
@@ -74,6 +75,11 @@ function Start-CIPPOneDriveCopyToUser {
     # --- Preflight: nothing is written until every check has passed ---------------------------
     $Source = Get-CIPPOneDriveCopyUser -TenantFilter $TenantFilter -UserId $Leaver -Kind Leaver
     $FolderName = $Source.UserPrincipalName
+    # Only a blocked account is copied: a leaver who can still sign in could keep changing the files
+    # while they are copied. Anything but an explicit false (including not returned) is refused.
+    if ($Source.AccountEnabled -ne $false) {
+        throw [System.ArgumentException]::new("Leaver $($Source.UserPrincipalName) can still sign in. Block sign-in for the account first, then start the copy.")
+    }
 
     $Children = @(New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/drives/$($Source.DriveId)/root/children?`$select=id,name,size,folder,file,package&`$top=999" -tenantid $TenantFilter -asapp $true)
     $RootItems = @($Children | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.name) -and ($_.folder -or $_.file -or $_.package) })

@@ -19,7 +19,7 @@ Describe 'Get-CIPPOneDriveCopyUser' {
         Mock New-GraphGetRequest {
             switch -Wildcard ($uri) {
                 '*/users/*/drive?*' { [pscustomobject]@{ id = 'drive-bob'; webUrl = 'https://contoso-my.sharepoint.com/personal/bob_contoso_com/Documents'; driveType = 'business'; quota = [pscustomobject]@{ remaining = 1000; total = 5000 } }; break }
-                '*/users/*' { [pscustomobject]@{ id = 'u-bob'; userPrincipalName = 'bob@contoso.com'; displayName = 'Bob'; assignedPlans = $script:Plans }; break }
+                '*/users/*' { [pscustomobject]@{ id = 'u-bob'; userPrincipalName = 'bob@contoso.com'; displayName = 'Bob'; accountEnabled = $false; userType = 'Member'; assignedPlans = $script:Plans }; break }
                 '*/root?*' { [pscustomobject]@{ id = 'root-bob'; sharepointIds = [pscustomobject]@{ siteUrl = 'https://contoso-my.sharepoint.com/personal/bob_contoso_com' } } }
             }
         }
@@ -32,6 +32,9 @@ Describe 'Get-CIPPOneDriveCopyUser' {
         $Result.DriveHost | Should -Be 'contoso-my.sharepoint.com'
         $Result.SiteUrl | Should -Be 'https://contoso-my.sharepoint.com/personal/bob_contoso_com'
         $Result.QuotaRemaining | Should -Be 1000
+        $Result.AccountEnabled | Should -BeFalse
+        $Result.UserType | Should -Be 'Member'
+        Should -Invoke New-GraphGetRequest -ParameterFilter { $uri -like '*/users/*$select=*accountEnabled*userType*' }
         Should -Invoke New-GraphGetRequest -ParameterFilter { $uri -like '*/users/bob%40contoso.com?*' -and $tenantid -eq 'contoso.com' }
     }
 

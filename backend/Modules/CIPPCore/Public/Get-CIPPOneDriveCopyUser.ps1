@@ -38,7 +38,7 @@ function Get-CIPPOneDriveCopyUser {
     $Escaped = [System.Uri]::EscapeDataString($Id)
 
     try {
-        $User = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$Escaped`?`$select=id,userPrincipalName,displayName,assignedPlans" -tenantid $TenantFilter -asapp $true
+        $User = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$Escaped`?`$select=id,userPrincipalName,displayName,accountEnabled,userType,assignedPlans" -tenantid $TenantFilter -asapp $true
     } catch {
         if ($_.Exception.Message -match $NotFoundPattern) {
             throw [System.ArgumentException]::new("$Label '$Id' was not found in tenant $TenantFilter.")
@@ -83,6 +83,8 @@ function Get-CIPPOneDriveCopyUser {
         UserId            = [string]$User.id
         UserPrincipalName = $Upn
         DisplayName       = [string]$User.displayName
+        AccountEnabled    = $User.accountEnabled
+        UserType          = [string]$User.userType
         HasOneDrivePlan   = $HasOneDrivePlan
         DriveId           = [string]$Drive.id
         DriveWebUrl       = $Drive.webUrl.TrimEnd('/')

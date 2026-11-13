@@ -72,8 +72,8 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
     }
 
     It 'copies without touching licences when Remove licenses is off' {
-        $Cmdlets = @(Get-Batch @{ OneDriveCopyTo = @('bob@contoso.com') } | ForEach-Object { $_.Cmdlet })
-        $Cmdlets | Should -Be @('Invoke-CIPPOffboardingOneDriveCopy')
+        $Cmdlets = @(Get-Batch @{ DisableSignIn = $true; OneDriveCopyTo = @('bob@contoso.com') } | ForEach-Object { $_.Cmdlet })
+        $Cmdlets | Should -Be @('Set-CIPPSignInState', 'Invoke-CIPPOffboardingOneDriveCopy')
     }
 
     It 'skips the copy when the user is being deleted, like every other non-delete step' {
@@ -83,7 +83,28 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
 
     It 'the validator accepts the copy as the only selected action' {
         function Test-CIPPHtmlIsEmpty { param($Html) $true }
-        $Result = Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); OneDriveCopyTo = @(@{ value = 'bob-id' }) })
+        $Result = Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); OneDriveCopyTo = @(@{ value = 'bob-id' }); DisableSignIn = $true })
         $Result.IsValid | Should -BeTrue
+    }
+    It 'runs the copy after Disable sign in' {
+        $Cmdlets = @(Get-Batch @{ RemoveLicenses = $true; DisableSignIn = $true; RevokeSessions = $true; OneDriveCopyTo = @('bob@contoso.com') } | ForEach-Object { $_.Cmdlet })
+        $Cmdlets.IndexOf('Set-CIPPSignInState') | Should -BeLessThan $Cmdlets.IndexOf('Invoke-CIPPOffboardingOneDriveCopy')
+        $Cmdlets.IndexOf('Invoke-CIPPOffboardingOneDriveCopy') | Should -BeLessThan $Cmdlets.IndexOf('Remove-CIPPLicenseAfterOneDriveCopy')
+    }
+
+    It 'the validator refuses the copy without Disable sign in' -ForEach @(
+        @{ Extra = @{} }
+        @{ Extra = @{ DisableSignIn = $false } }
+    ) {
+        function Test-CIPPHtmlIsEmpty { param($Html) $true }
+        $Body = @{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); OneDriveCopyTo = @(@{ value = 'bob-id' }); RemoveLicenses = $true } + $Extra
+        $Result = Test-CIPPOffboardingRequest -Body ([pscustomobject]$Body)
+        $Result.IsValid | Should -BeFalse
+        $Result.Errors | Should -BeLike "*'OneDriveCopyTo' needs 'DisableSignIn'*"
+    }
+
+    It 'the validator is unchanged when the copy is not selected' {
+        function Test-CIPPHtmlIsEmpty { param($Html) $true }
+        (Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); RemoveLicenses = $true; OneDriveCopyTo = @() })).IsValid | Should -BeTrue
     }
 }

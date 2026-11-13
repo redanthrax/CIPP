@@ -18,7 +18,7 @@ BeforeAll {
 
     . $FunctionPath
 
-    function New-TestUser([string]$Name, [int64]$Remaining = 10GB, [string]$DriveHost = 'contoso-my.sharepoint.com') {
+    function New-TestUser([string]$Name, [int64]$Remaining = 10GB, [string]$DriveHost = 'contoso-my.sharepoint.com', $AccountEnabled = $true) {
         $Personal = "$($Name)_contoso_com"
         [pscustomobject]@{
             UserId            = "id-$Name"
@@ -28,6 +28,8 @@ BeforeAll {
             DriveHost         = $DriveHost
             SiteUrl           = "https://$DriveHost/personal/$Personal"
             QuotaRemaining    = $Remaining
+            AccountEnabled    = $AccountEnabled
+            UserType          = 'Member'
         }
     }
     $script:Params = @{ TenantFilter = 'contoso.com'; Leaver = 'jane@contoso.com'; Recipients = @('bob@contoso.com'); StartedBy = 'admin@partner.com' }
@@ -36,7 +38,7 @@ BeforeAll {
 Describe 'Start-CIPPOneDriveCopyToUser' {
     BeforeEach {
         $script:Users = @{
-            'jane@contoso.com'  = New-TestUser 'jane'
+            'jane@contoso.com'  = New-TestUser 'jane' -AccountEnabled $false
             'bob@contoso.com'   = New-TestUser 'bob'
             'carol@contoso.com' = New-TestUser 'carol'
         }
@@ -169,7 +171,7 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         @{ Case = 'apostrophe and plus'; Upn = "o'brien+it@contoso.com"; Escaped = 'o%27brien%2Bit%40contoso.com' }
         @{ Case = 'unicode'; Upn = 'zoë@contoso.com'; Escaped = 'zo%C3%AB%40contoso.com' }
     ) {
-        $Leaver = New-TestUser 'jane'
+        $Leaver = New-TestUser 'jane' -AccountEnabled $false
         $Leaver.UserPrincipalName = $Upn
         $script:Users[$Upn] = $Leaver
         $Params = $script:Params.Clone()
@@ -261,6 +263,17 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
     It 'throws when no recipient could start' {
         Mock Invoke-CIPPSharePointCreateCopyJobs { throw 'SharePoint CreateCopyJobs returned no job handles.' }
         { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw '*failed to start for every recipient*'
+        Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+    }
+    It 'refuses a leaver who <Case> before writing anything' -ForEach @(
+        @{ Case = 'can still sign in'; Enabled = $true }
+        @{ Case = 'has no accountEnabled value'; Enabled = $null }
+    ) {
+        $script:Users['jane@contoso.com'] = New-TestUser 'jane' -AccountEnabled $Enabled
+        { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*jane@contoso.com can still sign in*'
+        Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*/root/children*' }
+        Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+        Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
     }
 }
