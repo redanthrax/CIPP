@@ -33932,7 +33932,7 @@
             "description": "Forbidden - caller lacks the required RBAC role"
           },
           "400": {
-            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a guest recipient, a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem.",
+            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a guest recipient or one from another organisation (invited, or synced in from another tenant), a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem. One refusal comes later: when a recipient already has a file (not a folder) named after the leaver's UPN at the root of their OneDrive, no copy is started for anyone, but the folders already created for recipients checked before it are left in place, empty.",
             "content": {
               "application/json": {
                 "schema": {
