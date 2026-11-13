@@ -50,6 +50,12 @@ function Get-CIPPOneDriveCopyUser {
     }
     $Upn = [string]$User.userPrincipalName
 
+    # A guest is a person outside the organisation; the leaver's files must not be handed to one.
+    # A guest leaver is still allowed.
+    if ($Kind -eq 'Recipient' -and [string]$User.userType -eq 'Guest') {
+        throw [System.ArgumentException]::new("Recipient $Upn is a guest. Only members of the tenant can receive the copy.")
+    }
+
     $HasOneDrivePlan = @($User.assignedPlans | Where-Object { $_.service -eq 'SharePoint' -and $_.capabilityStatus -eq 'Enabled' }).Count -gt 0
     if ($Kind -eq 'Recipient' -and -not $HasOneDrivePlan) {
         throw [System.ArgumentException]::new("Recipient $Upn has no licence that includes OneDrive.")

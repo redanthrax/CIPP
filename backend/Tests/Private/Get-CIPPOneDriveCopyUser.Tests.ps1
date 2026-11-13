@@ -16,10 +16,11 @@ BeforeAll {
 Describe 'Get-CIPPOneDriveCopyUser' {
     BeforeEach {
         $script:Plans = $script:Licensed
+        $script:UserType = 'Member'
         Mock New-GraphGetRequest {
             switch -Wildcard ($uri) {
                 '*/users/*/drive?*' { [pscustomobject]@{ id = 'drive-bob'; webUrl = 'https://contoso-my.sharepoint.com/personal/bob_contoso_com/Documents'; driveType = 'business'; quota = [pscustomobject]@{ remaining = 1000; total = 5000 } }; break }
-                '*/users/*' { [pscustomobject]@{ id = 'u-bob'; userPrincipalName = 'bob@contoso.com'; displayName = 'Bob'; accountEnabled = $false; userType = 'Member'; assignedPlans = $script:Plans }; break }
+                '*/users/*' { [pscustomobject]@{ id = 'u-bob'; userPrincipalName = 'bob@contoso.com'; displayName = 'Bob'; accountEnabled = $false; userType = $script:UserType; assignedPlans = $script:Plans }; break }
                 '*/root?*' { [pscustomobject]@{ id = 'root-bob'; sharepointIds = [pscustomobject]@{ siteUrl = 'https://contoso-my.sharepoint.com/personal/bob_contoso_com' } } }
             }
         }
@@ -85,5 +86,15 @@ Describe 'Get-CIPPOneDriveCopyUser' {
         Mock New-GraphGetRequest { throw 'Graph 503 Service Unavailable' } -ParameterFilter { $uri -like '*/drive?*' }
         $Thrown = { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' } | Should -Throw -PassThru
         $Thrown.Exception | Should -Not -BeOfType ([System.ArgumentException])
+    }
+    It 'refuses a guest recipient' {
+        $script:UserType = 'Guest'
+        { Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' -Kind Recipient } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage 'Recipient bob@contoso.com is a guest*'
+        Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*/drive?*' }
+    }
+
+    It 'allows a guest leaver' {
+        $script:UserType = 'Guest'
+        (Get-CIPPOneDriveCopyUser -TenantFilter 'contoso.com' -UserId 'bob@contoso.com' -Kind Leaver).UserType | Should -Be 'Guest'
     }
 }
