@@ -6,7 +6,7 @@ BeforeAll {
     if (-not (Test-Path $FunctionPath)) { throw "Could not locate $FunctionPath" }
 
     function Get-CIPPOneDriveCopyUser { param($TenantFilter, $UserId, $Kind) }
-    function New-GraphGetRequest { param($uri, $tenantid, $asapp) }
+    function New-GraphGetRequest { param($uri, $tenantid, $asapp, $noPagination, [switch]$SkipValueExtraction) }
     function New-GraphPOSTRequest { param($uri, $tenantid, $type, $body, $AsApp) }
     function Invoke-CIPPSharePointCreateCopyJobs { param($TenantFilter, $SourceSiteUrl, $ExportObjectUris, $DestinationUri, $NameConflictBehavior, $SameWebCopyMoveOptimization, $IgnoreVersionHistory) }
     function Set-CIPPSharePointLibraryCopyOperation { param($TenantFilter, $OperationId, $Entity, $TableName) }
@@ -32,6 +32,24 @@ BeforeAll {
             UserType          = 'Member'
         }
     }
+    # Splits delta items into pages linked by @odata.nextLink; the last page carries a deltaLink.
+    function New-DeltaPages([object[]]$Items, [int]$PageSize = 1000) {
+        $Pages = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt [Math]::Max(1, $Items.Count); $i += $PageSize) {
+            $Pages.Add([pscustomobject]@{ value = @($Items | Select-Object -Skip $i -First $PageSize) })
+        }
+        for ($p = 0; $p -lt $Pages.Count; $p++) {
+            if ($p -lt $Pages.Count - 1) {
+                $Pages[$p] | Add-Member -NotePropertyName '@odata.nextLink' -NotePropertyValue "https://graph.microsoft.com/v1.0/drives/drive-jane/root/delta?token=p$($p + 1)"
+            } else {
+                $Pages[$p] | Add-Member -NotePropertyName '@odata.deltaLink' -NotePropertyValue 'https://graph.microsoft.com/v1.0/drives/drive-jane/root/delta?token=done'
+            }
+        }
+        @($Pages)
+    }
+    function New-DeltaFile([string]$Name, [int64]$Size) { [pscustomobject]@{ id = "f-$Name"; name = $Name; size = $Size; file = @{ mimeType = 'text/plain' } } }
+    function New-DeltaFolder([string]$Name) { [pscustomobject]@{ id = "d-$Name"; name = $Name; size = 0; folder = @{ childCount = 0 } } }
+    $script:DeltaRoot = [pscustomobject]@{ id = 'root'; name = 'root'; size = 1510; folder = @{ childCount = 4 }; root = @{} }
     $script:Params = @{ TenantFilter = 'contoso.com'; Leaver = 'jane@contoso.com'; Recipients = @('bob@contoso.com'); StartedBy = 'admin@partner.com' }
 }
 
@@ -54,6 +72,23 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
             [pscustomobject]@{ id = 'i4'; name = 'odd'; size = 1 }
         )
         Mock New-GraphGetRequest { $script:Children } -ParameterFilter { $uri -like '*/root/children*' }
+        # The whole OneDrive: 5 files (1,510 bytes) under the root items above, plus folders, the root
+        # and a deleted item, none of which count.
+        $script:DeltaPages = New-DeltaPages @(
+            $script:DeltaRoot
+            New-DeltaFolder 'Projects'
+            New-DeltaFile 'a.txt' 400
+            New-DeltaFile 'b.txt' 300
+            New-DeltaFile 'c.txt' 300
+            New-DeltaFile 'Budget #1.xlsx' 500
+            [pscustomobject]@{ id = 'n'; name = 'Notebook'; size = 10; folder = @{}; package = @{ type = 'oneNote' } }
+            New-DeltaFile 'Section.one' 10
+            [pscustomobject]@{ id = 'gone'; name = 'old.txt'; size = 9999; file = @{}; deleted = @{ state = 'deleted' } }
+        )
+        Mock New-GraphGetRequest {
+            $Page = if ($uri -match 'token=p(\d+)') { [int]$Matches[1] } else { 0 }
+            $script:DeltaPages[$Page]
+        } -ParameterFilter { $uri -like '*/root/delta*' }
         Mock New-GraphGetRequest { [pscustomobject]@{ id = 'existing'; name = 'jane@contoso.com'; folder = @{ childCount = 1 } } } -ParameterFilter { $uri -like '*/root:/*' }
         Mock New-GraphPOSTRequest { [pscustomobject]@{ id = 'new-folder'; name = 'jane@contoso.com'; folder = @{} } }
         Mock Invoke-CIPPSharePointCreateCopyJobs {
@@ -94,6 +129,8 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         $Result.OperationId | Should -Match '^[0-9a-f-]{36}$'
         $Result.FolderName | Should -Be 'jane@contoso.com'
         $Result.RootItemCount | Should -Be 3
+        $Result.SourceFileCount | Should -Be 5
+        $Result.SourceBytes | Should -Be 1510
         $Result.ExpectedBytes | Should -Be 1510
         $Result.Recipients[0].State | Should -Be 'Queued'
         $Result.Recipients[0].FolderCreated | Should -BeTrue
@@ -114,7 +151,11 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
             $TableName -eq 'OneDriveCopyToUser' -and $OperationId -like '*-r0' -and $Entity.JobHandleCount -eq 3 -and $Entity.StartedBy -eq 'admin@partner.com'
         }
         Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
-            $Entity.Kind -eq 'Operation' -and $Entity.PartitionKey -eq 'contoso.com' -and $Entity.LeaverUPN -eq 'jane@contoso.com' -and $Entity.StartedBy -eq 'admin@partner.com'
+            $Entity.Kind -eq 'Operation' -and $Entity.PartitionKey -eq 'contoso.com' -and $Entity.LeaverUPN -eq 'jane@contoso.com' -and $Entity.StartedBy -eq 'admin@partner.com' -and
+            $Entity.SourceFileCount -eq 5 -and $Entity.SourceBytes -eq 1510 -and $Entity.RootItemCount -eq 3 -and -not $Entity.ContainsKey('RootItemEmpty')
+        }
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter {
+            $uri -like 'https://graph.microsoft.com/v1.0/drives/drive-jane/root/delta?*' -and $asapp -eq $true -and $noPagination -eq $true -and $SkipValueExtraction
         }
         Should -Invoke Write-LogMessage -Times 1 -Exactly -ParameterFilter { $sev -eq 'Info' -and $message -like '*started by admin@partner.com*' -and $tenant -eq 'contoso.com' }
     }
@@ -138,6 +179,61 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         $Result.Recipients[0].JobCount | Should -Be 250
     }
 
+    Context 'SharePoint bundles root items into fewer jobs' {
+        BeforeEach {
+            # As seen live: items are bundled in submission order, two per job.
+            Mock Invoke-CIPPSharePointCreateCopyJobs {
+                for ($i = 0; $i -lt @($ExportObjectUris).Count; $i += 2) { [pscustomobject]@{ JobId = (New-Guid).Guid; JobQueueUri = 'https://q.queue.core.windows.net/x'; EncryptionKey = 'k' } }
+            }
+        }
+
+        It 'starts a 7-item copy that SharePoint runs as 4 jobs (live fixture)' {
+            $script:Children = @(1..7 | ForEach-Object { [pscustomobject]@{ id = "i$_"; name = "f$_.txt"; size = 0; file = @{} } })
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params
+            $Result.Recipients[0].State | Should -Be 'Queued'
+            $Result.Recipients[0].JobCount | Should -Be 4
+            Should -Invoke Set-CIPPSharePointLibraryCopyOperation -Times 1 -Exactly -ParameterFilter { $Entity.JobHandleCount -eq 4 -and @($Entity.CopyJobInfos).Count -eq 4 }
+            Should -Invoke Write-LogMessage -Times 0 -Exactly -ParameterFilter { $sev -eq 'Error' }
+        }
+
+        It 'accepts bundled jobs across batches of 100' {
+            $script:Children = @(1..250 | ForEach-Object { [pscustomobject]@{ id = "i$_"; name = "f$_.txt"; size = 1; file = @{} } })
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params
+            Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 3 -Exactly
+            $Result.Recipients[0].State | Should -Be 'Queued'
+            $Result.Recipients[0].JobCount | Should -Be 125
+        }
+    }
+
+    It 'marks a recipient Failed when SharePoint returns <Case>, and keeps the others' -ForEach @(
+        @{ Case = 'no jobs'; Jobs = 0; Expected = '*returned 0 copy job(s) for 3 root item(s)*' }
+        @{ Case = 'more jobs than root items'; Jobs = 4; Expected = '*returned 4 copy job(s) for 3 root item(s)*' }
+    ) {
+        $Params = $script:Params.Clone()
+        $Params.Recipients = @('bob@contoso.com', 'carol@contoso.com')
+        $script:JobsToReturn = $Jobs
+        Mock Invoke-CIPPSharePointCreateCopyJobs {
+            @(1..$script:JobsToReturn | Where-Object { $script:JobsToReturn -gt 0 } | ForEach-Object { [pscustomobject]@{ JobId = "j$_"; JobQueueUri = 'https://q.queue.core.windows.net/x'; EncryptionKey = 'k' } })
+        } -ParameterFilter { $DestinationUri -like '*bob_contoso_com*' }
+        $Result = Start-CIPPOneDriveCopyToUser @Params
+        $Bob = $Result.Recipients | Where-Object UserPrincipalName -EQ 'bob@contoso.com'
+        $Bob.State | Should -Be 'Failed'
+        $Bob.Message | Should -BeLike $Expected
+        ($Result.Recipients | Where-Object UserPrincipalName -EQ 'carol@contoso.com').State | Should -Be 'Queued'
+        Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
+            ($Entity.Recipients | ConvertFrom-Json | Where-Object UserPrincipalName -EQ 'bob@contoso.com').StartError -like '*copy job(s) for 3*'
+        }
+    }
+
+    It 'fails a recipient when one batch of 100 gets no jobs, even if the total is in range' {
+        $script:Children = @(1..150 | ForEach-Object { [pscustomobject]@{ id = "i$_"; name = "f$_.txt"; size = 1; file = @{} } })
+        Mock Invoke-CIPPSharePointCreateCopyJobs {
+            if (@($ExportObjectUris).Count -eq 100) { 1..60 | ForEach-Object { [pscustomobject]@{ JobId = "j$_"; JobQueueUri = 'https://q.queue.core.windows.net/x'; EncryptionKey = 'k' } } }
+        }
+        { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw '*returned 0 copy job(s) for 50 root item(s)*'
+        Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+    }
+
     It 'starts one copy per recipient and de-duplicates recipients' {
         $Params = $script:Params.Clone()
         $Params.Recipients = @('bob@contoso.com', 'carol@contoso.com', 'BOB@contoso.com ')
@@ -154,6 +250,7 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         @{ Case = 'an unknown recipient among good ones'; Setup = {}; Recipients = @('bob@contoso.com', 'ghost@contoso.com'); Message = "*'ghost@contoso.com' was not found*" }
         @{ Case = 'an empty leaver OneDrive'; Setup = { $script:Children = @() }; Recipients = @('bob@contoso.com'); Message = '*has nothing to copy*' }
         @{ Case = 'more than 1,000 root items'; Setup = { $script:Children = @(1..1001 | ForEach-Object { [pscustomobject]@{ name = "f$_"; size = 1; file = @{} } }) }; Recipients = @('bob@contoso.com'); Message = '*1001 items at its root*' }
+        @{ Case = 'more than 100,000 files and folders in the OneDrive'; Setup = { $File = New-DeltaFile 'x.txt' 1; $script:DeltaPages = New-DeltaPages (@($File) * 100001) 1000 }; Recipients = @('bob@contoso.com'); Message = '*more than 100000 files and folders*' }
         @{ Case = 'no recipients'; Setup = {}; Recipients = @(' '); Message = 'At least one recipient is required.' }
         @{ Case = 'too many recipients'; Setup = {}; Recipients = @(1..11 | ForEach-Object { "u$_@contoso.com" }); Message = 'At most 10 recipients*' }
         @{ Case = 'a guest recipient among good ones'; Setup = { Mock Get-CIPPOneDriveCopyUser { throw [System.ArgumentException]::new('Recipient g_x.com#EXT#@contoso.com is a guest. Only members of the tenant can receive the copy.') } -ParameterFilter { $UserId -like 'g_*' } }; Recipients = @('bob@contoso.com', 'g_x.com#EXT#@contoso.com'); Message = '*is a guest*' }
@@ -279,31 +376,59 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
     }
-    It 'marks a recipient Failed when SharePoint returns fewer jobs than root items' {
-        $Params = $script:Params.Clone()
-        $Params.Recipients = @('bob@contoso.com', 'carol@contoso.com')
-        Mock Invoke-CIPPSharePointCreateCopyJobs { @([pscustomobject]@{ JobId = 'only-one'; JobQueueUri = 'https://q.queue.core.windows.net/x'; EncryptionKey = 'k' }) } -ParameterFilter { $DestinationUri -like '*bob_contoso_com*' }
-        $Result = Start-CIPPOneDriveCopyToUser @Params
-        $Bob = $Result.Recipients | Where-Object UserPrincipalName -EQ 'bob@contoso.com'
-        $Bob.State | Should -Be 'Failed'
-        $Bob.Message | Should -BeLike '*returned 1 copy job(s) for 3 root item(s)*'
-        ($Result.Recipients | Where-Object UserPrincipalName -EQ 'carol@contoso.com').State | Should -Be 'Queued'
-        Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
-            ($Entity.Recipients | ConvertFrom-Json | Where-Object UserPrincipalName -EQ 'bob@contoso.com').StartError -like '*1 copy job(s) for 3*'
+    Context 'source totals from the whole OneDrive (delta)' {
+        It 'follows @odata.nextLink across pages and counts only current files' {
+            $Items = @($script:DeltaRoot) + @(1..2500 | ForEach-Object { if ($_ % 5 -eq 0) { New-DeltaFolder "d$_" } else { New-DeltaFile "f$_" 3 } }) +
+                @([pscustomobject]@{ id = 'gone'; name = 'gone.txt'; size = 7; file = @{}; deleted = @{ state = 'deleted' } })
+            $script:DeltaPages = New-DeltaPages $Items 999
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params
+            Should -Invoke New-GraphGetRequest -Times 3 -Exactly -ParameterFilter { $uri -like '*/root/delta*' }
+            Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like '*/root/delta?token=p2' }
+            $Result.SourceFileCount | Should -Be 2000
+            $Result.SourceBytes | Should -Be 6000
         }
-    }
 
-    It 'records which root items were empty at start, in job order' {
-        $script:Children = @(
-            [pscustomobject]@{ name = 'Full'; size = 10; folder = @{ childCount = 2 } }
-            [pscustomobject]@{ name = 'EmptyFolder'; size = 0; folder = @{ childCount = 0 } }
-            [pscustomobject]@{ name = 'zero.txt'; size = 0; file = @{} }
-            [pscustomobject]@{ name = 'one.txt'; size = 1; file = @{} }
-            [pscustomobject]@{ name = 'Notebook'; size = 0; package = @{ type = 'oneNote' } }
-        )
-        Start-CIPPOneDriveCopyToUser @script:Params | Out-Null
-        Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter {
-            (@($Entity.RootItemEmpty | ConvertFrom-Json) -join ',') -eq 'False,True,True,False,False'
+        It 'stops enumerating as soon as the cap is passed, before writing anything' {
+            $File = New-DeltaFile 'x.txt' 1
+            $script:DeltaPages = New-DeltaPages (@($File) * 150000) 1000
+            { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*more than 100000 files and folders*'
+            Should -Invoke New-GraphGetRequest -Times 101 -Exactly -ParameterFilter { $uri -like '*/root/delta*' }
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'accepts exactly 100,000 files and folders' {
+            $File = New-DeltaFile 'x.txt' 1
+            $script:Users['bob@contoso.com'] = New-TestUser 'bob' -Remaining 1TB
+            $script:DeltaPages = New-DeltaPages (@($File) * 100000) 1000
+            (Start-CIPPOneDriveCopyToUser @script:Params).SourceFileCount | Should -Be 100000
+        }
+
+        It 'checks free space against the files counted by delta, not the lagging root-item sizes' {
+            # Live: a folder holding files reported size 0 straight after upload.
+            $script:Children = @(
+                [pscustomobject]@{ id = 'i1'; name = 'Fresh'; size = 0; folder = @{ childCount = 2 } }
+                [pscustomobject]@{ id = 'i2'; name = 'big.bin'; size = 2068334; file = @{} }
+            )
+            $script:DeltaPages = New-DeltaPages @($script:DeltaRoot, (New-DeltaFolder 'Fresh'), (New-DeltaFile 'a.txt' 29), (New-DeltaFile 'b.txt' 31), (New-DeltaFile 'big.bin' 2068334))
+            $script:Users['bob@contoso.com'] = New-TestUser 'bob' -Remaining 2068393
+            { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*needs 2068394 bytes and 2068393 are free*'
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+
+            $script:Users['bob@contoso.com'] = New-TestUser 'bob' -Remaining 2068394
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params
+            $Result.SourceBytes | Should -Be 2068394
+            $Result.SourceFileCount | Should -Be 3
+        }
+
+        It 'starts a copy of a OneDrive holding only an empty folder, expecting no files' {
+            $script:Children = @([pscustomobject]@{ id = 'i1'; name = 'Empty'; size = 0; folder = @{ childCount = 0 } })
+            $script:DeltaPages = New-DeltaPages @($script:DeltaRoot, (New-DeltaFolder 'Empty'))
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params
+            $Result.Recipients[0].State | Should -Be 'Queued'
+            $Result.SourceFileCount | Should -Be 0
+            $Result.SourceBytes | Should -Be 0
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.SourceFileCount -eq 0 -and $Entity.SourceBytes -eq 0 }
         }
     }
 }

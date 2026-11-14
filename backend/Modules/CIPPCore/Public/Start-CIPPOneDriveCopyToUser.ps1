@@ -9,11 +9,19 @@ function Start-CIPPOneDriveCopyToUser {
         leaver's, and enough free quota for the leaver's files. Any refusal throws ArgumentException
         naming every problem, and nothing is created.
 
+        The leaver's whole OneDrive is enumerated (Graph delta, app-only) to count its files
+        (SourceFileCount) and their current-version size (SourceBytes). These are what a recipient's
+        copy must add up to before it is reported Completed, and SourceBytes is what the free-space
+        check uses: Graph's folder sizes lag behind recent uploads, so root-item sizes are not used.
+        More than MaxSourceItems files and folders is refused.
+
         Then, per recipient, the folder /<leaver UPN> is created at the root of their OneDrive (or
-        reused) and one SharePoint CreateCopyJobs job per root item of the leaver's OneDrive is
-        submitted into it, with NameConflictBehavior KeepBoth so nothing that is already there is
-        overwritten. Jobs are stored per recipient in the OneDriveCopyToUser table and polled by
-        Update-CIPPOneDriveCopyToUserStatus.
+        reused) and the leaver's root items are submitted to SharePoint CreateCopyJobs in batches of
+        100, with NameConflictBehavior KeepBoth so nothing that is already there is overwritten.
+        SharePoint bundles the items of a batch into one or more jobs (seen live: 7 items, 4 jobs) and
+        does not say which job holds which item, so 1..N jobs per batch of N items is accepted; no jobs
+        or more jobs than items fails that recipient. Jobs are stored per recipient in the
+        OneDriveCopyToUser table and polled by Update-CIPPOneDriveCopyToUserStatus.
     .FUNCTIONALITY
         Internal
     #>
@@ -47,9 +55,16 @@ function Start-CIPPOneDriveCopyToUser {
     $TableName = 'OneDriveCopyToUser'
     $MaxRecipients = 10
     $MaxRootItems = 1000
+    # Files and folders enumerated in the leaver's OneDrive before the copy is refused. Enumeration
+    # runs inside the HTTP request (about 100 delta pages at this size), and SharePoint's own guidance
+    # for one copy/move operation is far lower, so a OneDrive this large needs a different approach.
+    $MaxSourceItems = 100000
+    $DeltaPageSize = 999
+    $MaxDeltaPages = 1000
     $JobsPerRequest = 100
     $KeepBoth = 2
-    # SharePoint's documented limit for one move/copy across sites; each root item is its own job.
+    # SharePoint's documented limit for one move/copy across sites. Jobs can hold several root items,
+    # so this is only checked per root item, as a warning.
     $PerJobByteLimit = 100GB
 
     if ($OperationId) {
@@ -89,7 +104,33 @@ function Start-CIPPOneDriveCopyToUser {
     if ($RootItems.Count -gt $MaxRootItems) {
         throw [System.ArgumentException]::new("Leaver $($Source.UserPrincipalName)'s OneDrive has $($RootItems.Count) items at its root (limit $MaxRootItems). Group files into folders and try again.")
     }
-    $SourceBytes = [int64](($RootItems | ForEach-Object { [int64]($_.size ?? 0) } | Measure-Object -Sum).Sum)
+
+    # Every file in the OneDrive, at any depth: what each recipient's copy must add up to. Folders,
+    # the root and deleted items are not counted. Paged by hand so the cap is enforced as pages arrive
+    # rather than after buffering everything.
+    $SourceFileCount = [int64]0
+    $SourceBytes = [int64]0
+    $SourceItemCount = [int64]0
+    $Pages = 0
+    $NextUri = "https://graph.microsoft.com/v1.0/drives/$($Source.DriveId)/root/delta?`$select=id,name,size,file,folder,package,deleted,root&`$top=$DeltaPageSize"
+    while ($NextUri) {
+        if (++$Pages -gt $MaxDeltaPages) {
+            throw "Enumerating $($Source.UserPrincipalName)'s OneDrive did not finish after $MaxDeltaPages pages."
+        }
+        $Page = New-GraphGetRequest -uri $NextUri -tenantid $TenantFilter -asapp $true -noPagination $true -SkipValueExtraction
+        foreach ($Item in @($Page.value)) {
+            if ($null -eq $Item -or $Item.deleted -or $Item.root) { continue }
+            $SourceItemCount++
+            if ($Item.file) {
+                $SourceFileCount++
+                $SourceBytes += [int64]($Item.size ?? 0)
+            }
+        }
+        if ($SourceItemCount -gt $MaxSourceItems) {
+            throw [System.ArgumentException]::new("Leaver $($Source.UserPrincipalName)'s OneDrive has more than $MaxSourceItems files and folders (limit $MaxSourceItems). It is too large to copy this way.")
+        }
+        $NextUri = [string]$Page.'@odata.nextLink'
+    }
 
     $Warnings = [System.Collections.Generic.List[string]]::new()
     $Oversized = @($RootItems | Where-Object { [int64]($_.size ?? 0) -gt $PerJobByteLimit })
@@ -183,19 +224,22 @@ function Start-CIPPOneDriveCopyToUser {
         }
         try {
             $Jobs = [System.Collections.Generic.List[object]]::new()
+            $BadBatches = [System.Collections.Generic.List[string]]::new()
             for ($i = 0; $i -lt $SourceUris.Count; $i += $JobsPerRequest) {
                 $Batch = @($SourceUris[$i..([Math]::Min($i + $JobsPerRequest, $SourceUris.Count) - 1)])
-                foreach ($Job in @(Invoke-CIPPSharePointCreateCopyJobs -TenantFilter $TenantFilter -SourceSiteUrl $Source.SiteUrl `
-                            -ExportObjectUris $Batch -DestinationUri $Target.DestinationUri -NameConflictBehavior $KeepBoth `
-                            -SameWebCopyMoveOptimization $false -IgnoreVersionHistory (-not $IncludeVersionHistory))) {
-                    $Jobs.Add($Job)
+                $BatchJobs = @(Invoke-CIPPSharePointCreateCopyJobs -TenantFilter $TenantFilter -SourceSiteUrl $Source.SiteUrl `
+                        -ExportObjectUris $Batch -DestinationUri $Target.DestinationUri -NameConflictBehavior $KeepBoth `
+                        -SameWebCopyMoveOptimization $false -IgnoreVersionHistory (-not $IncludeVersionHistory) | Where-Object { $null -ne $_ })
+                # SharePoint bundles a batch's items into 1..N jobs. No job leaves items uncopied; more
+                # jobs than items is unexplained. Either way the copy cannot be confirmed.
+                if ($BatchJobs.Count -lt 1 -or $BatchJobs.Count -gt $Batch.Count) {
+                    $BadBatches.Add("$($BatchJobs.Count) copy job(s) for $($Batch.Count) root item(s)")
                 }
+                foreach ($Job in $BatchJobs) { $Jobs.Add($Job) }
             }
             $Record.JobCount = $Jobs.Count
-            # One job per root item, in order, is what the status check relies on; anything else means
-            # some items have no job, so this recipient cannot be confirmed complete.
-            if ($Jobs.Count -ne $SourceUris.Count) {
-                $Record.StartError = "Copy failed to start: SharePoint returned $($Jobs.Count) copy job(s) for $($SourceUris.Count) root item(s)."
+            if ($BadBatches.Count -gt 0) {
+                $Record.StartError = "Copy failed to start: SharePoint returned $($BadBatches -join ', ')."
                 Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -sev Error `
                     -message "OneDrive copy $OperationId for $($Target.UserPrincipalName): $($Record.StartError)"
             }
@@ -240,11 +284,8 @@ function Start-CIPPOneDriveCopyToUser {
         StartedUtc            = $StartedUtc
         StartedUnix           = [int64]$StartedAt.ToUnixTimeSeconds()
         RootItemCount         = $RootItems.Count
-        # Per root item, in job order: true for an empty folder or a 0-byte file, the only items whose
-        # job may legitimately finish having processed nothing.
-        RootItemEmpty         = (ConvertTo-Json -Compress -InputObject @($RootItems | ForEach-Object {
-                    [bool](($_.folder -and [int64]($_.folder.childCount ?? -1) -eq 0) -or ($_.file -and [int64]($_.size ?? -1) -eq 0))
-                }))
+        SourceFileCount       = $SourceFileCount
+        SourceBytes           = $SourceBytes
         ExpectedBytes         = $SourceBytes
         IncludeVersionHistory = $IncludeVersionHistory
         Expiry                = $Expiry
@@ -253,17 +294,19 @@ function Start-CIPPOneDriveCopyToUser {
 
     $Names = ($RecipientRecords | ForEach-Object { $_.UserPrincipalName }) -join ', '
     Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -sev Info `
-        -message "OneDrive copy $OperationId started by $StartedBy`: $($Source.UserPrincipalName) to $Names (folder $FolderName, $($RootItems.Count) root items, $SourceBytes bytes)"
+        -message "OneDrive copy $OperationId started by $StartedBy`: $($Source.UserPrincipalName) to $Names (folder $FolderName, $($RootItems.Count) root items, $SourceFileCount files, $SourceBytes bytes)"
 
     [PSCustomObject]@{
-        OperationId   = $OperationId
-        Leaver        = $Source.UserPrincipalName
-        FolderName    = $FolderName
-        RootItemCount = $RootItems.Count
-        ExpectedBytes = $SourceBytes
-        StartedBy     = [string]$StartedBy
-        StartedUtc    = $StartedUtc
-        Recipients    = @($RecipientRecords | ForEach-Object {
+        OperationId     = $OperationId
+        Leaver          = $Source.UserPrincipalName
+        FolderName      = $FolderName
+        RootItemCount   = $RootItems.Count
+        SourceFileCount = $SourceFileCount
+        SourceBytes     = $SourceBytes
+        ExpectedBytes   = $SourceBytes
+        StartedBy       = [string]$StartedBy
+        StartedUtc      = $StartedUtc
+        Recipients      = @($RecipientRecords | ForEach-Object {
                 [PSCustomObject]@{
                     UserPrincipalName = $_.UserPrincipalName
                     FolderCreated     = $_.FolderCreated
@@ -272,7 +315,7 @@ function Start-CIPPOneDriveCopyToUser {
                     Message           = if ($_.StartError) { $_.StartError } else { 'Copy queued.' }
                 }
             })
-        Warnings      = @($Warnings)
-        Message       = 'OneDrive copy started. Poll ListOneDriveCopyToUser with the OperationId until State is Completed before removing licences.'
+        Warnings        = @($Warnings)
+        Message         = 'OneDrive copy started. Poll ListOneDriveCopyToUser with the OperationId until State is Completed before removing licences.'
     }
 }
