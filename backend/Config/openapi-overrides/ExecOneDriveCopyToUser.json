@@ -29,7 +29,7 @@
             "includeVersionHistory": {
               "type": "boolean",
               "default": false,
-              "description": "Copy every version of each file. Off by default: only the current version is copied, which is what the free-space check counts."
+              "description": "Copy every version of each file. Off by default: only the current version is copied, which is what the free-space check counts. When on, Completed needs at least SourceBytes copied rather than exactly SourceBytes."
             }
           }
         }
@@ -38,7 +38,7 @@
   },
   "responses": {
     "200": {
-      "description": "Copy started. The leaver's root items are copied into /<leaver UPN> at the root of each recipient's OneDrive; existing files are kept and copies are renamed on conflict.",
+      "description": "Copy started. The leaver's root items are copied into /<leaver UPN> at the root of each recipient's OneDrive; existing files are kept and copies are renamed on conflict. Root items are submitted to SharePoint in batches of 100, and SharePoint bundles each batch into one or more copy jobs (it does not say which items a job holds), so JobCount is usually lower than RootItemCount.",
       "content": {
         "application/json": {
           "schema": {
@@ -50,8 +50,10 @@
                   "OperationId": { "type": "string", "format": "uuid", "description": "Pass to ListOneDriveCopyToUser." },
                   "Leaver": { "type": "string" },
                   "FolderName": { "type": "string", "description": "The leaver's UPN; the folder created (or reused) at each recipient's OneDrive root." },
-                  "RootItemCount": { "type": "integer", "description": "Files and folders at the root of the leaver's OneDrive; one copy job each." },
-                  "ExpectedBytes": { "type": "integer", "format": "int64", "description": "Total size of the leaver's root items (current versions)." },
+                  "RootItemCount": { "type": "integer", "description": "Files and folders at the root of the leaver's OneDrive (at most 1,000). These are what is submitted to SharePoint." },
+                  "SourceFileCount": { "type": "integer", "format": "int64", "description": "Files in the whole of the leaver's OneDrive when the copy started, at any depth (folders and deleted items not counted). Each recipient's copy must create exactly this many files to be Completed." },
+                  "SourceBytes": { "type": "integer", "format": "int64", "description": "Total size of those files (current versions). Used for the free-space check, and each recipient's copy must process exactly this many bytes (at least this many with version history) to be Completed." },
+                  "ExpectedBytes": { "type": "integer", "format": "int64", "description": "Same as SourceBytes; kept for compatibility." },
                   "StartedBy": { "type": "string" },
                   "StartedUtc": { "type": "string", "format": "date-time" },
                   "Recipients": {
@@ -62,7 +64,7 @@
                         "UserPrincipalName": { "type": "string" },
                         "FolderCreated": { "type": "boolean", "description": "False when the folder already existed and was reused." },
                         "State": { "type": "string", "enum": ["Queued", "Failed"] },
-                        "JobCount": { "type": "integer" },
+                        "JobCount": { "type": "integer", "description": "Copy jobs SharePoint created for this recipient: between 1 and RootItemCount. No jobs, or more jobs than root items, makes the recipient Failed." },
                         "Message": { "type": "string" }
                       }
                     }
@@ -77,7 +79,7 @@
       }
     },
     "400": {
-      "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, a guest recipient or one from another organisation (invited, or synced in from another tenant), a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem. One refusal comes later: when a recipient already has a file (not a folder) named after the leaver's UPN at the root of their OneDrive, no copy is started for anyone, but the folders already created for recipients checked before it are left in place, empty.",
+      "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, more than 100,000 files and folders in the leaver's whole OneDrive (counted with Graph delta before anything is written), a guest recipient or one from another organisation (invited, or synced in from another tenant), a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem. One refusal comes later: when a recipient already has a file (not a folder) named after the leaver's UPN at the root of their OneDrive, no copy is started for anyone, but the folders already created for recipients checked before it are left in place, empty.",
       "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StandardResults" } } }
     },
     "500": {
