@@ -15,8 +15,9 @@ function Start-CIPPOneDriveCopyToUser {
         check uses: Graph's folder sizes lag behind recent uploads, so root-item sizes are not used.
         More than MaxSourceItems files and folders is refused.
 
-        Then, per recipient, the folder /<leaver UPN> is created at the root of their OneDrive (or
-        reused) and the leaver's root items are submitted to SharePoint CreateCopyJobs in batches of
+        Before anything is created, every recipient's OneDrive is checked for a FILE named like the
+        folder (refused for all recipients). Then, per recipient, the folder /<leaver UPN> is created at
+        the root of their OneDrive (or reused) and the leaver's root items are submitted to SharePoint CreateCopyJobs in batches of
         100, with NameConflictBehavior KeepBoth so nothing that is already there is overwritten.
         SharePoint bundles the items of a batch into one or more jobs (seen live: 7 items, 4 jobs) and
         does not say which job holds which item, so 1..N jobs per batch of N items is accepted; no jobs
@@ -186,6 +187,19 @@ function Start-CIPPOneDriveCopyToUser {
             $Warnings.Add("Free space in $($Target.UserPrincipalName)'s OneDrive could not be read, so it was not checked.")
         }
         $Targets.Add($Target)
+    }
+    # The destination name must be free or a folder in EVERY recipient's OneDrive before any folder is
+    # created; otherwise a clash at a later recipient would leave empty folders at the earlier ones.
+    foreach ($Target in $Targets) {
+        $Existing = $null
+        try {
+            $Existing = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/drives/$($Target.DriveId)/root:/$([System.Uri]::EscapeDataString($FolderName))?`$select=id,name,folder,file,package" -tenantid $TenantFilter -asapp $true
+        } catch {
+            if ($_.Exception.Message -notmatch 'itemNotFound|ResourceNotFound|not found|could not be found|does not exist|404') { throw }
+        }
+        if ($Existing.id -and -not $Existing.folder) {
+            $Problems.Add("Recipient $($Target.UserPrincipalName) already has a file named $FolderName at the root of their OneDrive. Rename it and try again.")
+        }
     }
     if ($Problems.Count -gt 0) {
         throw [System.ArgumentException]::new("OneDrive copy not started. $($Problems -join ' ')")

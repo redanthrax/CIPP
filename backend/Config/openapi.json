@@ -33441,9 +33441,12 @@
                   "Action": {
                     "type": "string"
                   },
-                  "DisableSignIn": {
+                  "DeleteUser": {
                     "type": "boolean",
-                    "description": "The OneDrive copy only starts for a blocked account, so it needs Disable sign in in the same run."
+                    "description": "Deleting the user skips every other step, the copy included, and starts the OneDrive's deletion."
+                  },
+                  "DisableSignIn": {
+                    "type": "boolean"
                   },
                   "forward": {
                     "$ref": "#/components/schemas/LabelValue"
@@ -33943,7 +33946,7 @@
             "description": "Forbidden - caller lacks the required RBAC role"
           },
           "400": {
-            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, more than 100,000 files and folders in the leaver's whole OneDrive (counted with Graph delta before anything is written), a guest recipient or one from another organisation (invited, or synced in from another tenant), a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, or a recipient in another tenant. Results is a string naming every problem. One refusal comes later: when a recipient already has a file (not a folder) named after the leaver's UPN at the root of their OneDrive, no copy is started for anyone, but the folders already created for recipients checked before it are left in place, empty.",
+            "description": "Refused before anything was written: missing or malformed input, a user not found in the tenant, a leaver who can still sign in (block sign-in first), a leaver without a OneDrive or with nothing to copy, more than 1,000 root items, more than 100,000 files and folders in the leaver's whole OneDrive (counted with Graph delta before anything is written), a guest recipient or one from another organisation (invited, or synced in from another tenant), a recipient without a OneDrive licence or OneDrive, a recipient without enough free space, a recipient in another tenant, or a recipient who already has a file (not a folder) named after the leaver's UPN at the root of their OneDrive. Results is a string naming every problem. No folder is created and no copy is started for anyone.",
             "content": {
               "application/json": {
                 "schema": {

@@ -317,7 +317,8 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
 
         $Result.FolderName | Should -BeExactly $Upn
         Should -Invoke New-GraphPOSTRequest -Times 1 -Exactly -ParameterFilter { ($body | ConvertFrom-Json).name -ceq $script:Upn }
-        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like "https://graph.microsoft.com/v1.0/drives/drive-bob/root:/$($script:Escaped)?*" }
+        # Looked up twice: the preflight name check, and after the creation conflict.
+        Should -Invoke New-GraphGetRequest -Times 2 -Exactly -ParameterFilter { $uri -like "https://graph.microsoft.com/v1.0/drives/drive-bob/root:/$($script:Escaped)?*" }
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 1 -Exactly -ParameterFilter {
             $DestinationUri -ceq "https://contoso-my.sharepoint.com/personal/bob_contoso_com/Documents/$($script:Escaped)"
         }
@@ -349,9 +350,11 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
     }
 
     It 'does not treat a non-conflict folder creation error as an existing folder' {
+        Mock New-GraphGetRequest { throw 'itemNotFound: The resource could not be found.' } -ParameterFilter { $uri -like '*/root:/*' }
         Mock New-GraphPOSTRequest { throw 'accessDenied: Access denied' }
         { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw '*Access denied*'
-        Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*/root:/*' }
+        # Only the preflight looked the name up; the failed creation is not followed by a lookup.
+        Should -Invoke New-GraphGetRequest -Times 1 -Exactly -ParameterFilter { $uri -like '*/root:/*' }
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
     }
 
@@ -372,7 +375,58 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Mock New-GraphPOSTRequest { throw 'nameAlreadyExists: Name already exists' }
         Mock New-GraphGetRequest { [pscustomobject]@{ id = 'a-file'; name = 'jane@contoso.com'; file = @{} } } -ParameterFilter { $uri -like '*/root:/*' }
         { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*already has a file named jane@contoso.com*'
+        Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
+    }
+
+    Context 'destination name checked for every recipient before any folder is created' {
+        BeforeEach {
+            $script:Params2 = $script:Params.Clone()
+            $script:Params2.Recipients = @('bob@contoso.com', 'carol@contoso.com', 'dave@contoso.com')
+            $script:Users['dave@contoso.com'] = New-TestUser 'dave'
+            # bob: name free; carol: a folder already there; dave: <DaveHas>
+            Mock New-GraphGetRequest { throw 'itemNotFound: The resource could not be found.' } -ParameterFilter { $uri -like '*/drives/drive-bob/root:/*' }
+            Mock New-GraphGetRequest { [pscustomobject]@{ id = 'f-carol'; name = 'jane@contoso.com'; folder = @{ childCount = 0 } } } -ParameterFilter { $uri -like '*/drives/drive-carol/root:/*' }
+        }
+
+        It 'refuses with 400 and creates nothing when a later recipient has a <Case> with that name' -ForEach @(
+            @{ Case = 'file'; Item = [pscustomobject]@{ id = 'x'; name = 'jane@contoso.com'; file = @{} } }
+            @{ Case = 'OneNote notebook'; Item = [pscustomobject]@{ id = 'x'; name = 'jane@contoso.com'; package = @{ type = 'oneNote' } } }
+        ) {
+            $script:DaveItem = $Item
+            Mock New-GraphGetRequest { $script:DaveItem } -ParameterFilter { $uri -like '*/drives/drive-dave/root:/*' }
+            { Start-CIPPOneDriveCopyToUser @script:Params2 } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*dave@contoso.com already has a file named jane@contoso.com*'
+            Should -Invoke New-GraphGetRequest -Times 3 -Exactly -ParameterFilter { $uri -like '*/root:/jane%40contoso.com?*' -and $asapp -eq $true }
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+            Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
+            Should -Invoke Set-CIPPSharePointLibraryCopyOperation -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'names every recipient with a clash, together with other refusals' {
+            Mock New-GraphGetRequest { [pscustomobject]@{ id = 'x'; name = 'jane@contoso.com'; file = @{} } } -ParameterFilter { $uri -like '*/drives/drive-dave/root:/*' }
+            Mock New-GraphGetRequest { [pscustomobject]@{ id = 'y'; name = 'jane@contoso.com'; file = @{} } } -ParameterFilter { $uri -like '*/drives/drive-bob/root:/*' }
+            $script:Params2.Recipients += 'nobody@contoso.com'
+            $Err = { Start-CIPPOneDriveCopyToUser @script:Params2 } | Should -Throw -ExceptionType ([System.ArgumentException]) -PassThru
+            $Err.Exception.Message | Should -BeLike '*nobody@contoso.com*'
+            $Err.Exception.Message | Should -BeLike '*bob@contoso.com already has a file*'
+            $Err.Exception.Message | Should -BeLike '*dave@contoso.com already has a file*'
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+        }
+
+        It 'starts when the name is free or already a folder everywhere' {
+            Mock New-GraphGetRequest { throw 'itemNotFound: The resource could not be found.' } -ParameterFilter { $uri -like '*/drives/drive-dave/root:/*' }
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params2
+            @($Result.Recipients | Where-Object State -EQ 'Queued').Count | Should -Be 3
+            Should -Invoke New-GraphPOSTRequest -Times 3 -Exactly
+        }
+
+        It 'creates nothing when the check itself fails (not a not-found)' {
+            Mock New-GraphGetRequest { throw 'serviceNotAvailable: 503' } -ParameterFilter { $uri -like '*/drives/drive-dave/root:/*' }
+            { Start-CIPPOneDriveCopyToUser @script:Params2 } | Should -Throw '*503*'
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
     }
 
     It 'warns about root items over the 100 GB per-job limit' {
