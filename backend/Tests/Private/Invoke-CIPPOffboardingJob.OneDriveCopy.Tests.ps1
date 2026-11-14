@@ -106,6 +106,19 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
         $Result.Errors | Should -BeLike "*'OneDriveCopyTo' needs 'DisableSignIn'*"
     }
 
+    It 'the validator refuses the copy together with Delete user' {
+        function Test-CIPPHtmlIsEmpty { param($Html) $true }
+        $Result = Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); OneDriveCopyTo = @(@{ value = 'bob-id' }); DisableSignIn = $true; DeleteUser = $true })
+        $Result.IsValid | Should -BeFalse
+        @($Result.Errors).Count | Should -Be 1
+        $Result.Errors | Should -BeLike "*'OneDriveCopyTo' cannot be combined with 'DeleteUser'*"
+    }
+
+    It 'the validator still accepts Delete user without the copy' {
+        function Test-CIPPHtmlIsEmpty { param($Html) $true }
+        (Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); DeleteUser = $true; OneDriveCopyTo = @() })).IsValid | Should -BeTrue
+    }
+
     It 'the validator is unchanged when the copy is not selected' {
         function Test-CIPPHtmlIsEmpty { param($Html) $true }
         (Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); RemoveLicenses = $true; OneDriveCopyTo = @() })).IsValid | Should -BeTrue
