@@ -14,6 +14,9 @@ BeforeAll {
     function Write-LogMessage { param($API, $tenant, $message, $sev, $headers, $LogData) }
     function Get-CippException { param($Exception) @{ NormalizedError = "$Exception" } }
     function Write-Information { param($MessageData) }
+    function Get-CippTable { param($tablename) @{ TableName = $tablename } }
+    function Get-CIPPAzDataTableEntity { param($Filter, $TableName) }
+    function Update-AzDataTableEntity { param($Entity, [switch]$Force, $TableName) }
 
     . $HtmlPath
     . $JobPath
@@ -106,5 +109,107 @@ Describe 'Invoke-CIPPOffboardingJob OneDrive copy' {
     It 'the validator is unchanged when the copy is not selected' {
         function Test-CIPPHtmlIsEmpty { param($Html) $true }
         (Test-CIPPOffboardingRequest -Body ([pscustomobject]@{ tenantFilter = 'contoso.com'; user = @(@{ value = 'pat@contoso.com' }); RemoveLicenses = $true; OneDriveCopyTo = @() })).IsValid | Should -BeTrue
+    }
+    Context 'operation id kept with the offboarding run' {
+        BeforeEach {
+            # ScheduledTasks rows in memory: the offboarding's own task, as the scheduler stored it.
+            $script:Tasks = @{
+                'task-1' = [pscustomobject]@{ PartitionKey = 'ScheduledTask'; RowKey = 'task-1'; Command = 'Invoke-CIPPOffboardingJob'; Tenant = 'contoso.com'; Parameters = '{"Username":"pat@contoso.com"}' }
+            }
+            Mock Get-CIPPAzDataTableEntity { if ($Filter -match "RowKey eq '([^']+)'") { $script:Tasks[$Matches[1]] } }
+            Mock Update-AzDataTableEntity {
+                $Row = $script:Tasks[$Entity.RowKey]
+                if (-not $Row) { throw 'ResourceNotFound' }
+                $Row | Add-Member -NotePropertyName OneDriveCopyOperationId -NotePropertyValue $Entity.OneDriveCopyOperationId -Force
+            }
+            $script:Opts = [pscustomobject]@{ RemoveLicenses = $true; DisableSignIn = $true; OneDriveCopyTo = @('bob@contoso.com') }
+            # Step indices in this batch: 0 Disable sign in, 1 Copy OneDrive, 2 Remove licences after the copy.
+            function Invoke-Run([int[]]$Steps = @(), [string]$Owner, $TaskInfo = [pscustomobject]@{ RowKey = 'task-1' }) {
+                $Params = @{ TenantFilter = 'contoso.com'; Username = 'pat@contoso.com'; Options = $script:Opts; TaskInfo = $TaskInfo; StepIndexes = $Steps }
+                if ($Owner) { $Params.OffboardingTaskId = $Owner }
+                $null = Invoke-CIPPOffboardingJob @Params
+                @($script:CapturedInput.Batch)
+            }
+        }
+
+        It 'records the copy id on the offboarding task when the whole run starts' {
+            $Batch = @(Invoke-Run)
+            $Id = ($Batch | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $Id | Should -Match '^[0-9a-f-]{36}$'
+            ($Batch | Where-Object Cmdlet -EQ 'Remove-CIPPLicenseAfterOneDriveCopy').Parameters.CopyOperationId | Should -Be $Id
+            $script:Tasks['task-1'].OneDriveCopyOperationId | Should -Be $Id
+        }
+
+        It 're-running only the licence step waits for the copy this offboarding started' {
+            $First = @(Invoke-Run)
+            $Id = ($First | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $Rerun = @(Invoke-Run -Steps @(2) -Owner 'task-1' -TaskInfo ([pscustomobject]@{ RowKey = 'rerun-task' }))
+            @($Rerun).Count | Should -Be 1
+            $Rerun[0].Cmdlet | Should -Be 'Remove-CIPPLicenseAfterOneDriveCopy'
+            $Rerun[0].Parameters.CopyOperationId | Should -Be $Id
+            Should -Invoke Update-AzDataTableEntity -Times 1 -Exactly
+        }
+
+        It 're-running the copy step starts a new copy under a new id, which a later licence-step re-run then waits for' {
+            $First = @(Invoke-Run)
+            $OldId = ($First | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $CopyRerun = @(Invoke-Run -Steps @(1) -Owner 'task-1' -TaskInfo ([pscustomobject]@{ RowKey = 'rerun-copy' }))
+            $NewId = $CopyRerun[0].Parameters.OperationId
+            $NewId | Should -Match '^[0-9a-f-]{36}$'
+            $NewId | Should -Not -Be $OldId
+            $script:Tasks['task-1'].OneDriveCopyOperationId | Should -Be $NewId
+            # The re-run's own task is not where the id lives.
+            Should -Invoke Update-AzDataTableEntity -Times 0 -Exactly -ParameterFilter { $Entity.RowKey -eq 'rerun-copy' }
+
+            $GateRerun = @(Invoke-Run -Steps @(2) -Owner 'task-1' -TaskInfo ([pscustomobject]@{ RowKey = 'rerun-gate' }))
+            $GateRerun[0].Parameters.CopyOperationId | Should -Be $NewId
+        }
+
+        It 're-running copy and licence steps together gives both the same new id' {
+            $null = @(Invoke-Run)
+            $Rerun = @(Invoke-Run -Steps @(1, 2) -Owner 'task-1' -TaskInfo ([pscustomobject]@{ RowKey = 'rerun' }))
+            $Rerun[0].Parameters.OperationId | Should -Be $Rerun[1].Parameters.CopyOperationId
+            $script:Tasks['task-1'].OneDriveCopyOperationId | Should -Be $Rerun[0].Parameters.OperationId
+        }
+
+        It 'a full re-run of the task starts a new copy and records it' {
+            $OldId = (Invoke-Run | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $NewId = (Invoke-Run | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $NewId | Should -Not -Be $OldId
+            $script:Tasks['task-1'].OneDriveCopyOperationId | Should -Be $NewId
+        }
+
+        It 'gives the licence step no id (so it keeps the licences) when <Case>' -ForEach @(
+            @{ Case = 'no copy was recorded'; Setup = { }; Owner = 'task-1' }
+            @{ Case = 'the re-run does not name its offboarding'; Setup = { $script:Tasks['task-1'] | Add-Member OneDriveCopyOperationId '11111111-2222-3333-4444-555555555555' -Force }; Owner = $null }
+            @{ Case = 'the named task is another user''s offboarding'; Setup = { $script:Tasks['task-1'] | Add-Member OneDriveCopyOperationId '11111111-2222-3333-4444-555555555555' -Force; $script:Tasks['task-1'].Parameters = '{"Username":"sam@contoso.com"}' }; Owner = 'task-1' }
+            @{ Case = 'the named task is in another tenant'; Setup = { $script:Tasks['task-1'] | Add-Member OneDriveCopyOperationId '11111111-2222-3333-4444-555555555555' -Force; $script:Tasks['task-1'].Tenant = 'other.com' }; Owner = 'task-1' }
+            @{ Case = 'the named task is not an offboarding'; Setup = { $script:Tasks['task-1'] | Add-Member OneDriveCopyOperationId '11111111-2222-3333-4444-555555555555' -Force; $script:Tasks['task-1'].Command = 'Invoke-Other' }; Owner = 'task-1' }
+            @{ Case = 'the named task does not exist'; Setup = { }; Owner = 'missing-task' }
+            @{ Case = 'the recorded id is not a GUID'; Setup = { $script:Tasks['task-1'] | Add-Member OneDriveCopyOperationId "x' or 1 eq 1" -Force }; Owner = 'task-1' }
+        ) {
+            . $Setup
+            $Rerun = @(Invoke-Run -Steps @(2) -Owner $Owner -TaskInfo ([pscustomobject]@{ RowKey = 'rerun-gate' }))
+            $Rerun[0].Cmdlet | Should -Be 'Remove-CIPPLicenseAfterOneDriveCopy'
+            $Rerun[0].Parameters.CopyOperationId | Should -BeNullOrEmpty
+            Should -Invoke Update-AzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'still starts the copy when the id cannot be recorded, and warns' {
+            Mock Update-AzDataTableEntity { throw 'Storage 503' }
+            $Batch = @(Invoke-Run)
+            $Id = ($Batch | Where-Object Cmdlet -EQ 'Invoke-CIPPOffboardingOneDriveCopy').Parameters.OperationId
+            $Id | Should -Match '^[0-9a-f-]{36}$'
+            ($Batch | Where-Object Cmdlet -EQ 'Remove-CIPPLicenseAfterOneDriveCopy').Parameters.CopyOperationId | Should -Be $Id
+            Should -Invoke Write-LogMessage -ParameterFilter { $sev -eq 'Warning' -and $message -like '*Could not record OneDrive copy*' }
+        }
+
+        It 'reads and writes no task state when the option is off' {
+            $script:Opts = [pscustomobject]@{ RemoveLicenses = $true; DisableSignIn = $true }
+            $null = @(Invoke-Run)
+            $null = @(Invoke-Run -Steps @(1) -Owner 'task-1')
+            Should -Invoke Get-CIPPAzDataTableEntity -Times 0 -Exactly
+            Should -Invoke Update-AzDataTableEntity -Times 0 -Exactly
+        }
     }
 }
