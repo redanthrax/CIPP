@@ -17,6 +17,10 @@ BeforeAll {
     function Get-CippException { param($Exception) [pscustomobject]@{ NormalizedError = [string]$Exception.Exception.Message } }
 
     . $FunctionPath
+    # Partition keys: the real helper over a Get-Tenants that knows no tenant, so rows are keyed by the
+    # lower-cased tenantFilter unless a test says otherwise.
+    function Get-Tenants { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Get-CIPPOneDriveCopyTenantKey.ps1')
 
     function New-TestUser([string]$Name, [int64]$Remaining = 10GB, [string]$DriveHost = 'contoso-my.sharepoint.com', $AccountEnabled = $true) {
         $Personal = "$($Name)_contoso_com"
@@ -120,6 +124,33 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         It 'refuses an id that is not a GUID' {
             { Start-CIPPOneDriveCopyToUser @script:Params -OperationId "x' or RowKey ne '" } | Should -Throw '*not a valid operation id*'
             Should -Invoke Get-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
+    }
+
+    Context 'partition key' {
+        BeforeEach {
+            $script:CustomerId = 'c0ffee00-1111-2222-3333-444444444444'
+            Mock Get-Tenants { [pscustomobject]@{ customerId = $script:CustomerId } }
+        }
+
+        It 'stores the copy under the customerId, and still calls Graph with the tenantFilter given' {
+            $Params = $script:Params.Clone()
+            $Params.TenantFilter = 'Contoso.com'
+            $null = Start-CIPPOneDriveCopyToUser @Params
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.Kind -eq 'Operation' -and $Entity.PartitionKey -ceq $script:CustomerId }
+            Should -Invoke Set-CIPPSharePointLibraryCopyOperation -Times 1 -Exactly -ParameterFilter { $TenantFilter -ceq $script:CustomerId }
+            Should -Invoke Get-CIPPOneDriveCopyUser -ParameterFilter { $TenantFilter -ceq 'Contoso.com' }
+            Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -ParameterFilter { $TenantFilter -ceq 'Contoso.com' }
+        }
+
+        It 'refuses an id already used under the old raw-tenantFilter key' {
+            $Id = '11111111-2222-3333-4444-555555555555'
+            Mock Get-CIPPAzDataTableEntity { [pscustomobject]@{ RowKey = $Id; Kind = 'Operation' } } -ParameterFilter { $Filter -ceq "PartitionKey eq 'Contoso.com' and RowKey eq '$Id'" }
+            $Params = $script:Params.Clone()
+            $Params.TenantFilter = 'Contoso.com'
+            { Start-CIPPOneDriveCopyToUser @Params -OperationId $Id } | Should -Throw '*already exists*'
+            Should -Invoke Get-CIPPAzDataTableEntity -ParameterFilter { $Filter -ceq "PartitionKey eq '$($script:CustomerId)' and RowKey eq '$Id'" }
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
         }
     }
 

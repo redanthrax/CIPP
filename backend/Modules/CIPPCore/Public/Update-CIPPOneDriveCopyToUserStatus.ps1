@@ -59,11 +59,20 @@ function Update-CIPPOneDriveCopyToUserStatus {
     }
 
     $Table = Get-CIPPTable -TableName $TableName
-    $SafeTenant = $TenantFilter -replace "'", "''"
-    $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeTenant' and RowKey eq '$OperationId'") | Select-Object -First 1
-    if (-not $Operation -or $Operation.Kind -ne 'Operation') {
+    # Rows are keyed by the tenant's customerId; copies started before that are under the raw
+    # tenantFilter. Every row of one copy shares the partition its operation row was found in.
+    $Operation = $null
+    $PartitionKey = $null
+    foreach ($ReadKey in (Get-CIPPOneDriveCopyTenantKey -TenantFilter $TenantFilter).ReadKeys) {
+        $SafeKey = $ReadKey -replace "'", "''"
+        $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeKey' and RowKey eq '$OperationId'") |
+            Where-Object { $_.Kind -eq 'Operation' } | Select-Object -First 1
+        if ($Operation) { $PartitionKey = $ReadKey; break }
+    }
+    if (-not $Operation) {
         throw [System.Management.Automation.ItemNotFoundException]::new('OneDrive copy operation not found.')
     }
+    $SafeTenant = $PartitionKey -replace "'", "''"
 
     $Records = @()
     if ($Operation.Recipients) { $Records = @($Operation.Recipients | ConvertFrom-Json) }
@@ -197,7 +206,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
         if ($null -ne $ETag -and -not [string]::IsNullOrWhiteSpace([string]$ETag)) {
             try {
                 Update-CIPPAzDataTableEntity @Table -Entity ([PSCustomObject]@{
-                        PartitionKey    = $Operation.PartitionKey ?? $TenantFilter
+                        PartitionKey    = $PartitionKey
                         RowKey          = $OperationId
                         ETag            = $ETag
                         LastCheckedUnix = $Now
@@ -232,7 +241,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
         foreach ($Group in @($Selected | Group-Object { [int]$_.Record.Index })) {
             if ($PollClock.Elapsed.TotalSeconds -ge $PollBudgetSeconds) { break }
             $Record = $Group.Group[0].Record
-            $Sub = Get-CIPPSharePointLibraryCopyOperation -TenantFilter $TenantFilter -OperationId $Record.SubOperationId -TableName $TableName
+            $Sub = Get-CIPPSharePointLibraryCopyOperation -TenantFilter $PartitionKey -OperationId $Record.SubOperationId -TableName $TableName
             if (-not $Sub) {
                 throw [System.Management.Automation.ItemNotFoundException]::new("Copy jobs for $($Record.UserPrincipalName) not found.")
             }
@@ -266,7 +275,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
                 $Polled++
                 $StateRowKey = '{0}{1}-{2:D4}' -f $StatePrefix, $State.RecipientIndex, $State.JobIndex
                 $Changed.Add(@{
-                        PartitionKey     = $TenantFilter
+                        PartitionKey     = $PartitionKey
                         RowKey           = $StateRowKey
                         RecipientIndex   = $State.RecipientIndex
                         JobIndex         = $State.JobIndex

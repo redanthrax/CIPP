@@ -71,9 +71,13 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
     $Operation = $null
     if ($OperationId -match $GuidPattern) {
         $Table = Get-CIPPTable -TableName 'OneDriveCopyToUser'
-        $SafeTenant = $TenantFilter -replace "'", "''"
-        $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeTenant' and RowKey eq '$OperationId'") |
-            Where-Object { $_.Kind -eq 'Operation' -and [string]$_.LeaverId -eq $userid } | Select-Object -First 1
+        # Keyed by the tenant's customerId; copies started before that are under the raw tenantFilter.
+        foreach ($ReadKey in (Get-CIPPOneDriveCopyTenantKey -TenantFilter $TenantFilter).ReadKeys) {
+            $SafeKey = $ReadKey -replace "'", "''"
+            $Operation = @(Get-CIPPAzDataTableEntity @Table -Filter "PartitionKey eq '$SafeKey' and RowKey eq '$OperationId'") |
+                Where-Object { $_.Kind -eq 'Operation' -and [string]$_.LeaverId -eq $userid } | Select-Object -First 1
+            if ($Operation) { break }
+        }
     }
     if (-not $Operation) {
         $Reason = if ($Scheduled) { "OneDrive copy $OperationId could not be found for this user." } else { 'the OneDrive copy step did not start a copy.' }

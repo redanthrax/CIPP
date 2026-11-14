@@ -5,6 +5,10 @@ BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Update-CIPPOneDriveCopyToUserStatus.ps1')
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Remove-CIPPLicenseAfterOneDriveCopy.ps1')
+    # Partition keys: the real helper over a Get-Tenants that knows no tenant, so rows are keyed by the
+    # lower-cased tenantFilter unless a test says otherwise.
+    function Get-Tenants { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Get-CIPPOneDriveCopyTenantKey.ps1')
 
     function Get-CIPPTable { param($TableName) @{ TableName = $TableName } }
     function Get-CippTable { param($tablename) @{ TableName = $tablename } }

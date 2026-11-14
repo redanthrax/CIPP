@@ -67,14 +67,20 @@ function Start-CIPPOneDriveCopyToUser {
     # so this is only checked per root item, as a warning.
     $PerJobByteLimit = 100GB
 
+    if ($OperationId -and $OperationId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
+        throw [System.ArgumentException]::new('OperationId is not a valid operation id.')
+    }
+    # Rows are keyed by the tenant's customerId, so a copy started with the domain can be polled with
+    # the tenant id (or another casing). Graph and SharePoint calls still use TenantFilter.
+    $TenantKeys = Get-CIPPOneDriveCopyTenantKey -TenantFilter $TenantFilter
+    $PartitionKey = $TenantKeys.Key
     if ($OperationId) {
-        if ($OperationId -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') {
-            throw [System.ArgumentException]::new('OperationId is not a valid operation id.')
-        }
         $IdTable = Get-CIPPTable -TableName $TableName
-        $SafeTenant = $TenantFilter -replace "'", "''"
-        if (@(Get-CIPPAzDataTableEntity @IdTable -Filter "PartitionKey eq '$SafeTenant' and RowKey eq '$OperationId'").Count -gt 0) {
-            throw [System.ArgumentException]::new("OneDrive copy $OperationId already exists; it was not started again.")
+        foreach ($ReadKey in $TenantKeys.ReadKeys) {
+            $SafeKey = $ReadKey -replace "'", "''"
+            if (@(Get-CIPPAzDataTableEntity @IdTable -Filter "PartitionKey eq '$SafeKey' and RowKey eq '$OperationId'").Count -gt 0) {
+                throw [System.ArgumentException]::new("OneDrive copy $OperationId already exists; it was not started again.")
+            }
         }
     }
 
@@ -243,7 +249,7 @@ function Start-CIPPOneDriveCopyToUser {
                 Write-LogMessage -headers $Headers -API $APIName -tenant $TenantFilter -sev Error `
                     -message "OneDrive copy $OperationId for $($Target.UserPrincipalName): $($Record.StartError)"
             }
-            Set-CIPPSharePointLibraryCopyOperation -TenantFilter $TenantFilter -OperationId $SubOperationId -TableName $TableName -Entity @{
+            Set-CIPPSharePointLibraryCopyOperation -TenantFilter $PartitionKey -OperationId $SubOperationId -TableName $TableName -Entity @{
                 SourceSiteUrl     = $Source.SiteUrl
                 SourceSiteName    = $Source.UserPrincipalName
                 SourceLibraryName = 'OneDrive'
@@ -275,7 +281,7 @@ function Start-CIPPOneDriveCopyToUser {
     $StartedUtc = $StartedAt.UtcDateTime.ToString('o')
     $Table = Get-CIPPTable -TableName $TableName
     Add-CIPPAzDataTableEntity @Table -Force -Entity @{
-        PartitionKey          = $TenantFilter
+        PartitionKey          = $PartitionKey
         RowKey                = $OperationId
         Kind                  = 'Operation'
         LeaverId              = $Source.UserId

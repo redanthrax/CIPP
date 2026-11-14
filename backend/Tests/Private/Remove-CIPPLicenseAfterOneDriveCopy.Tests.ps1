@@ -14,6 +14,10 @@ BeforeAll {
     function Write-LogMessage { param($headers, $API, $tenant, $message, $sev) }
 
     . $FunctionPath
+    # Partition keys: the real helper over a Get-Tenants that knows no tenant, so rows are keyed by the
+    # lower-cased tenantFilter unless a test says otherwise.
+    function Get-Tenants { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Get-CIPPOneDriveCopyTenantKey.ps1')
 
     $script:UserId = 'aaaaaaaa-1111-2222-3333-444444444444'
     $script:OpId = '11111111-2222-3333-4444-555555555555'
@@ -189,6 +193,34 @@ Describe 'Remove-CIPPLicenseAfterOneDriveCopy' {
             Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
             Should -Invoke Update-AzDataTableEntity -Times 1 -Exactly -ParameterFilter { $Entity.Recurrence -eq '0' }
             Should -Invoke Write-LogMessage -ParameterFilter { $sev -eq 'Error' }
+        }
+    }
+    Context 'partition key' {
+        BeforeEach {
+            $script:CustomerId = 'c0ffee00-1111-2222-3333-444444444444'
+            Mock Get-Tenants { [pscustomobject]@{ customerId = $script:CustomerId } }
+            Mock Get-CIPPAzDataTableEntity {
+                @($script:Rows | Where-Object { $Filter -ceq "PartitionKey eq '$($_.PartitionKey)' and RowKey eq '$($_.RowKey)'" })
+            }
+        }
+
+        It 'finds the copy keyed by the customerId when the offboarding uses the domain' {
+            $script:Rows = @([pscustomobject]@{ PartitionKey = $script:CustomerId; RowKey = $script:OpId; Kind = 'Operation'; LeaverId = $script:UserId })
+            Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId | Should -Be 'Scheduled license removal for pat@contoso.com.'
+        }
+
+        It 'finds a copy stored under the raw tenantFilter before keys were normalised' {
+            $script:Rows = @([pscustomobject]@{ PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverId = $script:UserId })
+            Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId | Should -Be 'Scheduled license removal for pat@contoso.com.'
+        }
+
+        It 'still refuses a copy of another user under either key' {
+            $script:Rows = @(
+                [pscustomobject]@{ PartitionKey = $script:CustomerId; RowKey = $script:OpId; Kind = 'Operation'; LeaverId = 'bbbbbbbb-1111-2222-3333-444444444444' }
+                [pscustomobject]@{ PartitionKey = 'contoso.com'; RowKey = $script:OpId; Kind = 'Operation'; LeaverId = 'bbbbbbbb-1111-2222-3333-444444444444' }
+            )
+            { Remove-CIPPLicenseAfterOneDriveCopy @script:Base -CopyOperationId $script:OpId } | Should -Throw '*NOT removed*'
+            Should -Invoke Remove-CIPPLicense -Times 0 -Exactly
         }
     }
 }

@@ -15,6 +15,10 @@ BeforeAll {
     function Update-CIPPSharePointLibraryCopyStatus { param($TenantFilter, $OperationId, $TableName) }
 
     . $FunctionPath
+    # Partition keys: the real helper over a Get-Tenants that knows no tenant, so rows are keyed by the
+    # lower-cased tenantFilter unless a test says otherwise.
+    function Get-Tenants { param($TenantFilter) }
+    . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Get-CIPPOneDriveCopyTenantKey.ps1')
 
     $script:OpId = '11111111-2222-3333-4444-555555555555'
     function New-Recipient([int]$Index, [string]$Upn, [string]$StartError, [int]$JobCount = 3) {
@@ -636,6 +640,55 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
             Invoke-Status | Out-Null
             $script:Progress['0-0'] = New-Progress $false 2
             (Invoke-Status).Recipients[0].ItemsCopied | Should -Be 5
+        }
+    }
+    Context 'partition key' {
+        BeforeEach {
+            $script:CustomerId = 'c0ffee00-1111-2222-3333-444444444444'
+            Mock Get-Tenants { [pscustomobject]@{ customerId = $script:CustomerId; defaultDomainName = 'contoso.com' } }
+            # The table honours PartitionKey here, so a lookup under the wrong key finds nothing.
+            Mock Get-CIPPAzDataTableEntity {
+                $Pk = if ($Filter -match "PartitionKey eq '([^']+)'") { $Matches[1] }
+                $Found = if ($Filter -match "RowKey eq '([^']+)'") { $script:Store[$Matches[1]] }
+                elseif ($Filter -match "RowKey ge '([^']+)' and RowKey lt '([^']+)'") {
+                    $Low = $Matches[1]; $High = $Matches[2]
+                    $script:Store.Values | Where-Object { [string]::CompareOrdinal($_.RowKey, $Low) -ge 0 -and [string]::CompareOrdinal($_.RowKey, $High) -lt 0 }
+                }
+                @($Found) | Where-Object { $_ -and [string]$_.PartitionKey -ceq $Pk }
+            }
+            $script:Progress['0-0'] = New-Progress $true 2
+            $script:Progress['0-1'] = New-Progress $true 2
+            $script:Progress['0-2'] = New-Progress $true 2
+        }
+
+        It 'finds a copy keyed by the customerId when polled with <Case>' -ForEach @(
+            @{ Case = 'the domain'; Poll = 'contoso.com' }
+            @{ Case = 'the domain in another case'; Poll = 'CONTOSO.com' }
+            @{ Case = 'the tenant id'; Poll = 'c0ffee00-1111-2222-3333-444444444444' }
+            @{ Case = 'the tenant id in upper case'; Poll = 'C0FFEE00-1111-2222-3333-444444444444' }
+        ) {
+            $script:Store[$script:OpId].PartitionKey = $script:CustomerId
+            $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter $Poll -OperationId $script:OpId -MinimumIntervalSeconds 0
+            $Result.State | Should -Be 'Completed'
+            Should -Invoke Get-CIPPSharePointLibraryCopyOperation -ParameterFilter { $TenantFilter -eq $script:CustomerId }
+            # Job states are stored next to the operation; SharePoint is still asked with the caller's tenant.
+            @($script:Store.Values | Where-Object { $_.RowKey -like "$($script:OpId)-js-*" } | ForEach-Object { $_.PartitionKey } | Sort-Object -Unique) | Should -Be @($script:CustomerId)
+            Should -Invoke Get-CIPPSharePointCopyJobProgress -ParameterFilter { $TenantFilter -eq $Poll }
+        }
+
+        It 'keeps polling a copy stored under the raw tenantFilter before keys were normalised' {
+            $script:Store[$script:OpId].PartitionKey = 'Contoso.com'
+            $Result = Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'Contoso.com' -OperationId $script:OpId -MinimumIntervalSeconds 0
+            $Result.State | Should -Be 'Completed'
+            Should -Invoke Get-CIPPSharePointLibraryCopyOperation -ParameterFilter { $TenantFilter -ceq 'Contoso.com' }
+            @($script:Store.Values | Where-Object { $_.RowKey -like "$($script:OpId)-js-*" } | ForEach-Object { $_.PartitionKey } | Sort-Object -Unique) | Should -Be @('Contoso.com')
+            # A second check reads those job states back from the same partition.
+            (Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'Contoso.com' -OperationId $script:OpId -MinimumIntervalSeconds 3600).State | Should -Be 'Completed'
+        }
+
+        It 'does not find a copy of another tenant' {
+            $script:Store[$script:OpId].PartitionKey = 'dddddddd-1111-2222-3333-444444444444'
+            { Update-CIPPOneDriveCopyToUserStatus -TenantFilter 'contoso.com' -OperationId $script:OpId } | Should -Throw -ExceptionType ([System.Management.Automation.ItemNotFoundException])
         }
     }
 }
