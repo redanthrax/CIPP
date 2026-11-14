@@ -102,6 +102,7 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Mock Add-CIPPAzDataTableEntity {}
         Mock Get-CIPPAzDataTableEntity {}
         Mock Write-LogMessage {}
+        Mock Start-Sleep {}
     }
 
     Context 'operation id chosen by the offboarding job' {
@@ -407,6 +408,49 @@ Describe 'Start-CIPPOneDriveCopyToUser' {
         Should -Invoke Invoke-CIPPSharePointCreateCopyJobs -Times 0 -Exactly
         Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
     }
+    Context 'sign-in block read straight after Disable sign in (offboarding)' {
+        BeforeEach {
+            $script:Users['jane@contoso.com'] = New-TestUser 'jane' -AccountEnabled $true
+            # Graph reads the account as enabled this many more times before it shows the block.
+            $script:EnabledReads = 2
+            Mock New-GraphGetRequest {
+                $script:EnabledReads--
+                [pscustomobject]@{ id = 'id-jane'; accountEnabled = ($script:EnabledReads -ge 0) }
+            } -ParameterFilter { $uri -like '*/users/id-jane?*accountEnabled*' }
+        }
+
+        It 'reads the leaver again with a backoff and starts once the block shows' {
+            $Result = Start-CIPPOneDriveCopyToUser @script:Params -WaitForSignInBlock
+            $Result.Recipients[0].State | Should -Be 'Queued'
+            Should -Invoke Start-Sleep -Times 3 -Exactly
+            Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 5 }
+            Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Seconds -eq 10 }
+            Should -Invoke New-GraphGetRequest -Times 3 -Exactly -ParameterFilter { $uri -like '*/users/id-jane?*accountEnabled*' -and $asapp -eq $true }
+        }
+
+        It 'refuses, writing nothing, when the leaver still reads as enabled after about 45 s' {
+            $script:EnabledReads = 100
+            { Start-CIPPOneDriveCopyToUser @script:Params -WaitForSignInBlock } | Should -Throw -ExceptionType ([System.ArgumentException]) -ExpectedMessage '*jane@contoso.com can still sign in*'
+            Should -Invoke Start-Sleep -Times 4 -Exactly
+            (5 + 10 + 15 + 15) | Should -BeLessOrEqual 60
+            Should -Invoke New-GraphPOSTRequest -Times 0 -Exactly
+            Should -Invoke Add-CIPPAzDataTableEntity -Times 0 -Exactly
+        }
+
+        It 'does not wait when the leaver already reads as blocked' {
+            $script:Users['jane@contoso.com'] = New-TestUser 'jane' -AccountEnabled $false
+            $null = Start-CIPPOneDriveCopyToUser @script:Params -WaitForSignInBlock
+            Should -Invoke Start-Sleep -Times 0 -Exactly
+            Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*accountEnabled*' }
+        }
+
+        It 'refuses at once without the switch (the HTTP endpoint)' {
+            { Start-CIPPOneDriveCopyToUser @script:Params } | Should -Throw -ExpectedMessage '*can still sign in*'
+            Should -Invoke Start-Sleep -Times 0 -Exactly
+            Should -Invoke New-GraphGetRequest -Times 0 -Exactly -ParameterFilter { $uri -like '*accountEnabled*' }
+        }
+    }
+
     Context 'source totals from the whole OneDrive (delta)' {
         It 'follows @odata.nextLink across pages and counts only current files' {
             $Items = @($script:DeltaRoot) + @(1..2500 | ForEach-Object { if ($_ % 5 -eq 0) { New-DeltaFolder "d$_" } else { New-DeltaFile "f$_" 3 } }) +

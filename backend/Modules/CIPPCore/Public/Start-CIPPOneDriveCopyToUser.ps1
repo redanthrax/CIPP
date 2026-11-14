@@ -48,6 +48,13 @@ function Start-CIPPOneDriveCopyToUser {
         # for exactly this copy. Not exposed by the HTTP endpoint. An id that is already in use is refused.
         [string]$OperationId,
 
+        # Internal: the offboarding job blocks sign-in a step earlier, and Graph can go on reading the
+        # account as enabled for a short while. With this set, an enabled leaver is read again after
+        # each of SignInBlockRetrySeconds before the copy is refused. The HTTP endpoint refuses at once.
+        [switch]$WaitForSignInBlock,
+
+        [int[]]$SignInBlockRetrySeconds = @(5, 10, 15, 15),
+
         $Headers,
         $APIName = 'OneDrive Copy To User'
     )
@@ -96,6 +103,15 @@ function Start-CIPPOneDriveCopyToUser {
     # --- Preflight: nothing is written until every check has passed ---------------------------
     $Source = Get-CIPPOneDriveCopyUser -TenantFilter $TenantFilter -UserId $Leaver -Kind Leaver
     $FolderName = $Source.UserPrincipalName
+    if ($WaitForSignInBlock) {
+        foreach ($Delay in $SignInBlockRetrySeconds) {
+            if ($Source.AccountEnabled -eq $false) { break }
+            Write-Information "OneDrive copy: $($Source.UserPrincipalName) still reads as able to sign in; checking again in $Delay s"
+            Start-Sleep -Seconds $Delay
+            $Recheck = New-GraphGetRequest -uri "https://graph.microsoft.com/v1.0/users/$($Source.UserId)?`$select=id,accountEnabled" -tenantid $TenantFilter -asapp $true
+            $Source.AccountEnabled = $Recheck.accountEnabled
+        }
+    }
     # Only a blocked account is copied: a leaver who can still sign in could keep changing the files
     # while they are copied. Anything but an explicit false (including not returned) is refused.
     if ($Source.AccountEnabled -ne $false) {

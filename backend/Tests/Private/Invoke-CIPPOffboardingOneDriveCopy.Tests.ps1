@@ -3,7 +3,7 @@
 BeforeAll {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
     . (Join-Path $RepoRoot 'Modules/CIPPCore/Public/Invoke-CIPPOffboardingOneDriveCopy.ps1')
-    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $StartedBy, $OperationId, $Headers, $APIName) }
+    function Start-CIPPOneDriveCopyToUser { param($TenantFilter, $Leaver, $Recipients, $StartedBy, $OperationId, $Headers, $APIName, [switch]$WaitForSignInBlock) }
 
     function New-StartResult([object[]]$Recipients) {
         [pscustomobject]@{ OperationId = 'op-1'; FolderName = 'pat@contoso.com'; RootItemCount = 4; ExpectedBytes = 100; Warnings = @(); Recipients = $Recipients }
@@ -21,7 +21,7 @@ Describe 'Invoke-CIPPOffboardingOneDriveCopy' {
             -Recipients @(@{ label = 'Bob'; value = 'bob-id' }, [pscustomobject]@{ value = 'carol-id' }, 'dave@contoso.com', $null)
         $Result | Should -BeLike 'Started OneDrive copy op-1 of pat@contoso.com into folder pat@contoso.com for bob@contoso.com*'
         Should -Invoke Start-CIPPOneDriveCopyToUser -Times 1 -Exactly -ParameterFilter {
-            $Leaver -eq 'pat@contoso.com' -and (@($Recipients) -join ';') -eq 'bob-id;carol-id;dave@contoso.com' -and $StartedBy -eq 'tech@partner.com'
+            $Leaver -eq 'pat@contoso.com' -and (@($Recipients) -join ';') -eq 'bob-id;carol-id;dave@contoso.com' -and $StartedBy -eq 'tech@partner.com' -and $WaitForSignInBlock
         }
     }
 

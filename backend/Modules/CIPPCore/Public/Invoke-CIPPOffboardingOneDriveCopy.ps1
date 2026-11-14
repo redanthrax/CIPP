@@ -50,6 +50,8 @@ function Invoke-CIPPOffboardingOneDriveCopy {
         StartedBy    = $StartedBy
         Headers      = $Headers
         APIName      = $APIName
+        # Disable sign in ran a step earlier; give Graph a moment to show the account as blocked.
+        WaitForSignInBlock = $true
     }
     if ($OperationId) { $StartParams.OperationId = $OperationId }
     $Result = Start-CIPPOneDriveCopyToUser @StartParams
