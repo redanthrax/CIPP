@@ -33446,14 +33446,14 @@
                     "description": "Deleting the user skips every other step, the copy included, and starts the OneDrive's deletion."
                   },
                   "DisableSignIn": {
-                    "type": "boolean"
+                    "type": "boolean",
+                    "description": "The OneDrive copy only starts for a blocked account, so it needs Disable sign in in the same run."
                   },
                   "forward": {
                     "$ref": "#/components/schemas/LabelValue"
                   },
                   "OneDriveCopyTo": {
-                    "type": "string",
-                    "description": "The OneDrive copy only starts for a blocked account, so it needs Disable sign in in the same run."
+                    "type": "string"
                   },
                   "OOO": {
                     "type": "string"
