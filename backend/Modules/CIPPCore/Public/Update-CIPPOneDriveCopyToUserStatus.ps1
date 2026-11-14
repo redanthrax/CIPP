@@ -3,8 +3,10 @@ function Update-CIPPOneDriveCopyToUserStatus {
     .SYNOPSIS
         Polls a OneDrive copy started by Start-CIPPOneDriveCopyToUser and returns per-recipient state.
     .DESCRIPTION
-        Each copy job (one per root item per recipient) has its own state row in the OneDriveCopyToUser
-        table, so a status call never has to poll everything:
+        Each copy job has its own state row in the OneDriveCopyToUser table, so a status call never has
+        to poll everything. SharePoint bundles the submitted root items into one or more jobs (seen live:
+        7 root items became 4 jobs) and does not say which items each job holds, so nothing here maps a
+        job to a root item; each recipient has 1..RootItemCount jobs.
           - SharePoint is asked at most once per MinimumIntervalSeconds per operation. The check is
             claimed with an ETag-conditional update of the operation row, so only one call per window
             polls; every other call (inside the window, or losing the claim) returns the stored job
@@ -15,9 +17,17 @@ function Update-CIPPOneDriveCopyToUserStatus {
         Jobs are polled with Get-CIPPSharePointCopyJobProgress, the library copy's parser; the library
         copy's own status code is not used or changed.
 
-        A recipient's State is Queued, InProgress, Completed or Failed. Completed needs every one of its
-        jobs to have been polled and confirmed finished without errors; Completed and Failed are final.
-        The operation's State is Completed only when every recipient is.
+        A recipient's State is Queued, InProgress, Completed or Failed; Completed and Failed are final.
+        Completed needs all of:
+          - every one of its jobs polled and confirmed finished by SharePoint (JobState 0);
+          - no errors, accumulated across checks;
+          - every job processed something and at least as many objects as it expected;
+          - files created across its jobs equal to the files counted in the leaver's OneDrive at start
+            (SourceFileCount);
+          - bytes processed across its jobs equal to the bytes counted at start (SourceBytes), or at
+            least that many when version history was included.
+        Anything else, once every job is final, is Failed. The operation's State is Completed only when
+        every recipient is.
     .FUNCTIONALITY
         Internal
     #>
@@ -64,8 +74,18 @@ function Update-CIPPOneDriveCopyToUserStatus {
         try { @([string]$Value | ConvertFrom-Json) } catch { @() }
     }
     $RootItemCount = [int]($Operation.RootItemCount ?? 0)
-    # Which root items were empty at start (job order). Unknown means not empty.
-    $RootItemEmpty = @(& $ReadList $Operation.RootItemEmpty)
+    # Totals counted in the leaver's OneDrive at start. A row without them (started before they were
+    # recorded) can never be confirmed complete.
+    $SourceFileCount = if ($null -ne $Operation.SourceFileCount) { [int64]$Operation.SourceFileCount } else { $null }
+    $SourceBytes = if ($null -ne $Operation.SourceBytes) { [int64]$Operation.SourceBytes } else { $null }
+    $IncludeVersionHistory = [bool]$Operation.IncludeVersionHistory
+    # SharePoint bundles root items into jobs, so 1..RootItemCount jobs is expected. No jobs, or more
+    # jobs than items submitted, is not something it has been seen to do and cannot be confirmed: such
+    # a recipient is Failed and never polled. (Start-CIPPOneDriveCopyToUser already refuses these.)
+    $JobCountValid = {
+        param($Record)
+        [int]$Record.JobCount -ge 1 -and ($RootItemCount -le 0 -or [int]$Record.JobCount -le $RootItemCount)
+    }
 
     # --- Stored job states ------------------------------------------------------------------------
     $StatePrefix = "$OperationId-js-"
@@ -110,8 +130,14 @@ function Update-CIPPOneDriveCopyToUserStatus {
         @($List)
     }
     # Folds one progress reading into a job's stored state and decides whether the job is final.
-    # Counts only ever grow and error messages accumulate, so a later reading that has lost an
-    # earlier error (SharePoint's log queue is read, not kept) cannot hide it.
+    # Counts keep the highest value seen per job, and error messages accumulate. Each reading is the
+    # last value the shared parser found in the logs it was given, and SharePoint's log queue is read,
+    # not kept, so a later reading can carry fewer (or no) log lines than an earlier one. If the counts
+    # are running totals (as observed: the final reading equalled the files and bytes in the source),
+    # the highest seen is the latest. If they ever turned out to be per-reading increments, the highest
+    # seen would undercount, and the totals check below would fail the recipient: licences are held,
+    # never released early. Summing readings instead could double-count running totals and confirm a
+    # copy that is short, which is the failure that must not happen.
     $MergeProgress = {
         param($State, $Progress)
         # The shared parser also calls a job complete when SharePoint's progress call failed (JobState
@@ -139,10 +165,17 @@ function Update-CIPPOneDriveCopyToUserStatus {
         } elseif ($Progress.IsComplete) {
             $State.IsFinal = $true
             $State.Failed = $State.TotalErrors -gt 0 -or $State.ErrorMessages.Count -gt 0
-            # A job that finishes having processed nothing copied nothing, unless its item was empty.
-            if ($State.ObjectsProcessed -eq 0 -and -not ($State.JobIndex -lt $RootItemEmpty.Count -and $RootItemEmpty[$State.JobIndex] -eq $true)) {
+            # A finished job always processes something: even an empty folder or a 0-byte file reports
+            # objects processed (seen live: 2 of 2). Nothing processed means nothing was copied.
+            if ($State.ObjectsProcessed -le 0) {
                 $State.Failed = $true
                 $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @('The copy job finished without copying anything.'))
+            } elseif ($null -eq $State.TotalExpectedObjects) {
+                $State.Failed = $true
+                $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @('The copy job finished without reporting how many objects it expected to copy.'))
+            } elseif ($State.ObjectsProcessed -lt [int64]$State.TotalExpectedObjects) {
+                $State.Failed = $true
+                $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @("The copy job finished having processed $($State.ObjectsProcessed) of $($State.TotalExpectedObjects) objects."))
             }
         }
     }
@@ -186,8 +219,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
         $PollClock = [System.Diagnostics.Stopwatch]::StartNew()
 
         $Candidates = foreach ($Record in $Records) {
-            if ($Record.StartError -or [int]$Record.JobCount -le 0) { continue }
-            if ($RootItemCount -gt 0 -and [int]$Record.JobCount -ne $RootItemCount) { continue }
+            if ($Record.StartError -or -not (& $JobCountValid $Record)) { continue }
             for ($j = 0; $j -lt [int]$Record.JobCount; $j++) {
                 $State = $States["$([int]$Record.Index)-$j"]
                 if ($State -and $State.IsFinal) { continue }
@@ -212,7 +244,7 @@ function Update-CIPPOneDriveCopyToUserStatus {
                 if ($null -eq $Handle) {
                     $State.IsFinal = $true
                     $State.Failed = $true
-                    $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @('SharePoint returned no copy job for this item.'))
+                    $State.ErrorMessages = @(& $AddMessages $State.ErrorMessages @('The stored copy job could not be found.'))
                 } else {
                     try {
                         $Progress = Get-CIPPSharePointCopyJobProgress -TenantFilter $TenantFilter -SourceSiteUrl $Sub.SourceSiteUrl -CopyJobInfo $Handle
@@ -308,30 +340,49 @@ function Update-CIPPOneDriveCopyToUserStatus {
         $Entry.Errors = @($Known | ForEach-Object { $_.ErrorMessages } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First $MaxMessagesPerRecipient)
         $Entry.Warnings = @($Known | ForEach-Object { $_.WarningMessages } | Where-Object { $_ } | Select-Object -Unique | Select-Object -First $MaxMessagesPerRecipient)
 
-        # Completed only when every job has been polled and confirmed finished, and there was one job
-        # per root item.
+        # Totals are only compared once every job is final: before that they are partial by design.
         $AllJobsDone = $Entry.JobsTotal -gt 0 -and $Known.Count -eq $Entry.JobsTotal -and $Entry.JobsComplete -eq $Entry.JobsTotal
-        if ($RootItemCount -gt 0 -and $Entry.JobsTotal -ne $RootItemCount) {
+        $Shortfall = $null
+        if ($AllJobsDone -and $FailedJobs.Count -eq 0) {
+            if ($Entry.ErrorCount -gt 0) {
+                $Shortfall = "Copy finished, but SharePoint reported $($Entry.ErrorCount) error(s)."
+            } elseif ($null -eq $SourceFileCount -or $null -eq $SourceBytes) {
+                $Shortfall = 'The number of files and bytes to copy was not recorded when the copy started, so it cannot be confirmed complete.'
+            } elseif ($Entry.ItemsCopied -ne $SourceFileCount) {
+                $Shortfall = "Copy finished, but copied $($Entry.ItemsCopied) of $SourceFileCount files."
+            } elseif ($IncludeVersionHistory -and $Entry.BytesCopied -lt $SourceBytes) {
+                $Shortfall = "Copy finished, but copied $($Entry.BytesCopied) bytes; the current versions alone are $SourceBytes bytes."
+            } elseif (-not $IncludeVersionHistory -and $Entry.BytesCopied -ne $SourceBytes) {
+                $Shortfall = "Copy finished, but copied $($Entry.BytesCopied) of $SourceBytes bytes."
+            }
+        }
+        if (-not (& $JobCountValid $Record)) {
             $Entry.State = 'Failed'
             $Entry.IsComplete = $true
             if ($Entry.ErrorCount -lt 1) { $Entry.ErrorCount = 1 }
             $Entry.Message = "SharePoint has $($Entry.JobsTotal) copy job(s) for $RootItemCount root item(s); the copy cannot be confirmed complete."
             $Entry.Errors = @(@($Entry.Message) + @($Entry.Errors))
-        } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0) {
+        } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0 -and -not $Shortfall) {
             $Entry.State = 'Completed'
             $Entry.IsComplete = $true
             $Entry.Message = 'Copy completed.'
+        } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0) {
+            $Entry.State = 'Failed'
+            $Entry.IsComplete = $true
+            if ($Entry.ErrorCount -lt 1) { $Entry.ErrorCount = 1 }
+            $Entry.Message = $Shortfall
+            $Entry.Errors = @(@($Shortfall) + @($Entry.Errors))
         } elseif ($AllJobsDone) {
             $Entry.State = 'Failed'
             $Entry.IsComplete = $true
             if ($Entry.ErrorCount -lt 1) { $Entry.ErrorCount = 1 }
-            $Entry.Message = "Copy finished, but $($FailedJobs.Count) of $($Entry.JobsTotal) root item(s) failed; some items were not copied."
+            $Entry.Message = "Copy finished, but $($FailedJobs.Count) of $($Entry.JobsTotal) copy job(s) failed; some items were not copied."
         } elseif ($Entry.JobsComplete -eq 0 -and $Entry.ObjectsProcessed -eq 0) {
             $Entry.State = 'Queued'
             $Entry.Message = 'Copy queued.'
         } else {
             $Entry.State = 'InProgress'
-            $Entry.Message = "Copy in progress ($($Entry.JobsComplete) of $($Entry.JobsTotal) root items done)."
+            $Entry.Message = "Copy in progress ($($Entry.JobsComplete) of $($Entry.JobsTotal) copy jobs done)."
         }
         [PSCustomObject]$Entry
     }
@@ -359,6 +410,8 @@ function Update-CIPPOneDriveCopyToUserStatus {
         IsComplete        = $State -in @('Completed', 'Failed')
         AllCompleted      = $State -eq 'Completed'
         RootItemCount     = [int]$Operation.RootItemCount
+        SourceFileCount   = $SourceFileCount
+        SourceBytes       = $SourceBytes
         ExpectedBytes     = [int64]($Operation.ExpectedBytes ?? 0)
         Recipients        = $Results
         CheckedSharePoint = $CheckedSharePoint
