@@ -22,10 +22,13 @@ function Update-CIPPOneDriveCopyToUserStatus {
           - every one of its jobs polled and confirmed finished by SharePoint (JobState 0);
           - no errors, accumulated across checks;
           - every job processed something and at least as many objects as it expected;
-          - files created across its jobs equal to the files counted in the leaver's OneDrive at start
-            (SourceFileCount);
-          - bytes processed across its jobs equal to the bytes counted at start (SourceBytes), or at
-            least that many when version history was included.
+          - at least as many files created across its jobs as were counted in the leaver's OneDrive at
+            start (SourceFileCount).
+        Fewer files than counted is Failed, because files may be missing. When every file is accounted
+        for, a difference that cannot mean a missing file is a warning on a Completed copy, not a
+        failure: more files than counted (added after the start), or bytes processed that differ from
+        the bytes counted at start (SourceBytes; SharePoint can rewrite file metadata while copying).
+        Live testing matched both totals exactly for plain files, Office files and OneNote notebooks.
         Anything else, once every job is final, is Failed. The operation's State is Completed only when
         every recipient is.
     .FUNCTIONALITY
@@ -352,17 +355,28 @@ function Update-CIPPOneDriveCopyToUserStatus {
         # Totals are only compared once every job is final: before that they are partial by design.
         $AllJobsDone = $Entry.JobsTotal -gt 0 -and $Known.Count -eq $Entry.JobsTotal -and $Entry.JobsComplete -eq $Entry.JobsTotal
         $Shortfall = $null
+        $TotalsWarnings = [System.Collections.Generic.List[string]]::new()
         if ($AllJobsDone -and $FailedJobs.Count -eq 0) {
             if ($Entry.ErrorCount -gt 0) {
                 $Shortfall = "Copy finished, but SharePoint reported $($Entry.ErrorCount) error(s)."
             } elseif ($null -eq $SourceFileCount -or $null -eq $SourceBytes) {
                 $Shortfall = 'The number of files and bytes to copy was not recorded when the copy started, so it cannot be confirmed complete.'
-            } elseif ($Entry.ItemsCopied -ne $SourceFileCount) {
+            } elseif ($Entry.ItemsCopied -lt $SourceFileCount) {
+                # Fewer files than the leaver's OneDrive held means files may be missing: never Completed.
                 $Shortfall = "Copy finished, but copied $($Entry.ItemsCopied) of $SourceFileCount files."
-            } elseif ($IncludeVersionHistory -and $Entry.BytesCopied -lt $SourceBytes) {
-                $Shortfall = "Copy finished, but copied $($Entry.BytesCopied) bytes; the current versions alone are $SourceBytes bytes."
-            } elseif (-not $IncludeVersionHistory -and $Entry.BytesCopied -ne $SourceBytes) {
-                $Shortfall = "Copy finished, but copied $($Entry.BytesCopied) of $SourceBytes bytes."
+            } else {
+                # Every file is accounted for. A difference that cannot mean a missing file is reported
+                # as a warning instead of failing the copy (and holding the licences) for good:
+                # - more files than counted: something was added to the leaver's OneDrive after the start;
+                # - other bytes than counted: SharePoint can rewrite file metadata while copying.
+                if ($Entry.ItemsCopied -gt $SourceFileCount) {
+                    $TotalsWarnings.Add("Copied $($Entry.ItemsCopied) files, more than the $SourceFileCount counted when the copy started (files may have been added since).")
+                }
+                if ($IncludeVersionHistory -and $Entry.BytesCopied -lt $SourceBytes) {
+                    $TotalsWarnings.Add("Copied $($Entry.BytesCopied) bytes with version history, less than the $SourceBytes bytes of current versions counted when the copy started.")
+                } elseif (-not $IncludeVersionHistory -and $Entry.BytesCopied -ne $SourceBytes) {
+                    $TotalsWarnings.Add("Copied $($Entry.BytesCopied) bytes; $SourceBytes bytes were counted when the copy started (SharePoint can change file sizes slightly while copying metadata).")
+                }
             }
         }
         if (-not (& $JobCountValid $Record)) {
@@ -374,7 +388,12 @@ function Update-CIPPOneDriveCopyToUserStatus {
         } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0 -and -not $Shortfall) {
             $Entry.State = 'Completed'
             $Entry.IsComplete = $true
-            $Entry.Message = 'Copy completed.'
+            if ($TotalsWarnings.Count -gt 0) {
+                $Entry.Message = "Copy completed with warnings: $($TotalsWarnings -join ' ')"
+                $Entry.Warnings = @(@($TotalsWarnings) + @($Entry.Warnings))
+            } else {
+                $Entry.Message = 'Copy completed.'
+            }
         } elseif ($AllJobsDone -and $FailedJobs.Count -eq 0) {
             $Entry.State = 'Failed'
             $Entry.IsComplete = $true

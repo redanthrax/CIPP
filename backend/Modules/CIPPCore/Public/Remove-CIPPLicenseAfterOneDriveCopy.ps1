@@ -13,7 +13,9 @@ function Remove-CIPPLicenseAfterOneDriveCopy {
           - Still queued or in progress: schedules itself as a recurring task (every 30 minutes) that
             checks again and removes the licences when the copy completes.
           - Failed, or no copy found (the copy step failed or was skipped): licences are NOT removed;
-            the step fails with the reason.
+            the step fails with the reason. This is also what happens on a Craft host too old to run
+            offboarding steps in order: if this step runs before the copy has started, it finds no copy
+            and keeps the licences.
 
         Scheduled run (OperationId given): Completed removes the licences directly and ends the
         recurrence; Failed, an unknown operation, or passing Deadline ends the recurrence without

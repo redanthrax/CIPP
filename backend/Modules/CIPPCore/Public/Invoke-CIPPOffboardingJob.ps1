@@ -564,6 +564,9 @@ function Invoke-CIPPOffboardingJob {
         # order. Start-CIPPOrchestrator probes the Craft bridge arity, so on a Craft too old to know
         # Sequential it logs a warning and falls back to fan-out rather than failing — safe here because the
         # grant steps are already idempotent (they read the ACE back), so the ordering is belt-and-suspenders.
+        # The OneDrive copy is the exception: on fan-out the copy can start before Disable sign in shows
+        # (the copy step then waits up to ~45 s, and refuses after that), and the licence step can run
+        # before the copy's row exists. Both fail closed: the licences are kept and an error is logged.
         $InputObject = [PSCustomObject]@{
             OrchestratorName = "OffboardingUser_$($Username)_$TenantFilter"
             Batch            = @($Batch)

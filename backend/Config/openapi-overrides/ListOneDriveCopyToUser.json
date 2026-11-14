@@ -39,7 +39,7 @@
                       "properties": {
                         "UserPrincipalName": { "type": "string" },
                         "FolderName": { "type": "string" },
-                        "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Completed needs all of: every copy job (SharePoint bundles root items into 1..RootItemCount jobs) polled and confirmed finished by SharePoint; no errors reported in any check; each job processed at least one object and at least as many as it expected; files created across the jobs equal to SourceFileCount; and bytes processed equal to SourceBytes (at least SourceBytes when version history was included). Failed is final: the copy never started, SharePoint returned no jobs or more jobs than root items, or every job has finished and at least one reported errors, failed to report progress five times in a row, or finished without processing everything it expected, or the totals do not match (for example 'copied 6 of 7 files')." },
+                        "State": { "type": "string", "enum": ["Queued", "InProgress", "Completed", "Failed"], "description": "Completed needs all of: every copy job (SharePoint bundles root items into 1..RootItemCount jobs) polled and confirmed finished by SharePoint; no errors reported in any check; each job processed at least one object and at least as many as it expected; and at least SourceFileCount files created across the jobs. When every file is accounted for, more files than SourceFileCount, or bytes processed that differ from SourceBytes, still give Completed, with the difference in Warnings and Message ('Copy completed with warnings: ...'). Failed is final: the copy never started, SharePoint returned no jobs or more jobs than root items, or every job has finished and at least one reported errors, failed to report progress five times in a row, or finished without processing everything it expected, or fewer files than SourceFileCount were copied (for example 'copied 6 of 7 files')." },
                         "IsComplete": { "type": "boolean" },
                         "JobsComplete": { "type": "integer" },
                         "JobsTotal": { "type": "integer", "description": "Copy jobs SharePoint created for this recipient (not one per root item: SharePoint bundles items)." },
@@ -49,7 +49,7 @@
                         "BytesCopied": { "type": "integer", "format": "int64", "description": "Bytes processed (the highest count each job has reported, summed)." },
                         "ErrorCount": { "type": "integer", "format": "int64", "description": "Highest error count each job has reported, summed; a failed job without a count adds one." },
                         "Errors": { "type": "array", "items": { "type": "string" }, "description": "Every distinct error reported across checks (up to 25 per job, 50 per recipient). Sanitised: URLs, paths and file names are redacted." },
-                        "Warnings": { "type": "array", "items": { "type": "string" } },
+                        "Warnings": { "type": "array", "items": { "type": "string" }, "description": "Warnings from SharePoint, and on a Completed copy any difference between the totals copied and those counted at the start." },
                         "Message": { "type": "string" }
                       }
                     }

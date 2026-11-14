@@ -64778,7 +64778,7 @@
                                   "Completed",
                                   "Failed"
                                 ],
-                                "description": "Completed needs all of: every copy job (SharePoint bundles root items into 1..RootItemCount jobs) polled and confirmed finished by SharePoint; no errors reported in any check; each job processed at least one object and at least as many as it expected; files created across the jobs equal to SourceFileCount; and bytes processed equal to SourceBytes (at least SourceBytes when version history was included). Failed is final: the copy never started, SharePoint returned no jobs or more jobs than root items, or every job has finished and at least one reported errors, failed to report progress five times in a row, or finished without processing everything it expected, or the totals do not match (for example 'copied 6 of 7 files')."
+                                "description": "Completed needs all of: every copy job (SharePoint bundles root items into 1..RootItemCount jobs) polled and confirmed finished by SharePoint; no errors reported in any check; each job processed at least one object and at least as many as it expected; and at least SourceFileCount files created across the jobs. When every file is accounted for, more files than SourceFileCount, or bytes processed that differ from SourceBytes, still give Completed, with the difference in Warnings and Message ('Copy completed with warnings: ...'). Failed is final: the copy never started, SharePoint returned no jobs or more jobs than root items, or every job has finished and at least one reported errors, failed to report progress five times in a row, or finished without processing everything it expected, or fewer files than SourceFileCount were copied (for example 'copied 6 of 7 files')."
                               },
                               "IsComplete": {
                                 "type": "boolean"
@@ -64828,7 +64828,8 @@
                                 "type": "array",
                                 "items": {
                                   "type": "string"
-                                }
+                                },
+                                "description": "Warnings from SharePoint, and on a Completed copy any difference between the totals copied and those counted at the start."
                               },
                               "Message": {
                                 "type": "string"

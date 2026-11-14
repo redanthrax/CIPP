@@ -470,35 +470,61 @@ Describe 'Update-CIPPOneDriveCopyToUserStatus' {
             $Result.SourceBytes | Should -Be 2068394
         }
 
-        It 'fails the live run when <Case>' -ForEach @(
-            @{ Case = 'one file is missing'; Files = 0; Bytes = 0; Message = 'Copy finished, but copied 6 of 7 files.' }
-            @{ Case = 'bytes fall short'; Files = 1; Bytes = 18; Message = 'Copy finished, but copied 2068393 of 2068394 bytes.' }
-            @{ Case = 'more bytes than the current versions without version history'; Files = 1; Bytes = 20; Message = 'Copy finished, but copied 2068395 of 2068394 bytes.' }
-            @{ Case = 'more files than the source'; Files = 2; Bytes = 19; Message = 'Copy finished, but copied 8 of 7 files.' }
+        It 'fails the live run when a file is missing, even with matching bytes elsewhere' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 4)) -RootItemCount 7 -Files 7 -Bytes 2068394
+            $script:Progress['0-0'] = New-Progress $true 10 -Files 2 -Bytes 29 -Expected 10
+            $script:Progress['0-1'] = New-Progress $true 4 -Files 2 -Bytes 12 -Expected 4
+            $script:Progress['0-2'] = New-Progress $true 4 -Files 2 -Bytes 2068334 -Expected 4
+            $script:Progress['0-3'] = New-Progress $true 2 -Files 0 -Bytes 19 -Expected 2
+            $Recipient = (Invoke-Status).Recipients[0]
+            $Recipient.State | Should -Be 'Failed'
+            $Recipient.IsComplete | Should -BeTrue
+            $Recipient.Message | Should -Be 'Copy finished, but copied 6 of 7 files.'
+            $Recipient.Errors | Should -Contain 'Copy finished, but copied 6 of 7 files.'
+            $Recipient.ErrorCount | Should -Be 1
+        }
+
+        It 'completes the live run with a warning when <Case>' -ForEach @(
+            @{ Case = 'bytes fall short with every file copied'; Files = 1; Bytes = 18; Warning = 'Copied 2068393 bytes; 2068394 bytes were counted when the copy started*' }
+            @{ Case = 'bytes exceed the source without version history'; Files = 1; Bytes = 20; Warning = 'Copied 2068395 bytes; 2068394 bytes were counted when the copy started*' }
+            @{ Case = 'more files than the source were copied'; Files = 2; Bytes = 19; Warning = 'Copied 8 files, more than the 7 counted when the copy started*' }
         ) {
             Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 4)) -RootItemCount 7 -Files 7 -Bytes 2068394
             $script:Progress['0-0'] = New-Progress $true 10 -Files 2 -Bytes 29 -Expected 10
             $script:Progress['0-1'] = New-Progress $true 4 -Files 2 -Bytes 12 -Expected 4
             $script:Progress['0-2'] = New-Progress $true 4 -Files 2 -Bytes 2068334 -Expected 4
             $script:Progress['0-3'] = New-Progress $true 2 -Files $Files -Bytes $Bytes -Expected 2
-            $Recipient = (Invoke-Status).Recipients[0]
-            $Recipient.State | Should -Be 'Failed'
+            $Result = Invoke-Status
+            $Recipient = $Result.Recipients[0]
+            $Recipient.State | Should -Be 'Completed'
             $Recipient.IsComplete | Should -BeTrue
-            $Recipient.Message | Should -Be $Message
-            $Recipient.Errors | Should -Contain $Message
-            $Recipient.ErrorCount | Should -Be 1
+            $Recipient.ErrorCount | Should -Be 0
+            $Recipient.Message | Should -BeLike 'Copy completed with warnings: *'
+            @($Recipient.Warnings | Where-Object { $_ -like $Warning }).Count | Should -Be 1
+            $Result.AllCompleted | Should -BeTrue
         }
 
-        It 'with version history, completes on at least the current-version bytes and fails below them' {
+        It 'never turns job errors into a warning, even when the totals match' {
+            Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 1)) -RootItemCount 1 -Files 1 -Bytes 10
+            $script:Progress['0-0'] = New-Progress $true 2 -Files 1 -Bytes 10 -Expected 2 -Errors 1 -Messages @('File: access denied')
+            $Recipient = (Invoke-Status).Recipients[0]
+            $Recipient.State | Should -Be 'Failed'
+            $Recipient.Message | Should -Not -BeLike '*warning*'
+            $Recipient.Errors | Should -Contain 'File: access denied'
+        }
+
+        It 'with version history, completes on at least the current-version bytes and warns below them' {
             Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 1)) -RootItemCount 2 -Files 2 -Bytes 100 -VersionHistory $true
             $script:Progress['0-0'] = New-Progress $true 3 -Files 2 -Bytes 250
-            (Invoke-Status).Recipients[0].State | Should -Be 'Completed'
+            $Recipient = (Invoke-Status).Recipients[0]
+            $Recipient.State | Should -Be 'Completed'
+            $Recipient.Message | Should -Be 'Copy completed.'
 
             Set-Operation @((New-Recipient 0 'bob@contoso.com' $null 1)) -RootItemCount 2 -Files 2 -Bytes 100 -VersionHistory $true
             $script:Progress['0-0'] = New-Progress $true 3 -Files 2 -Bytes 99
             $Recipient = (Invoke-Status).Recipients[0]
-            $Recipient.State | Should -Be 'Failed'
-            $Recipient.Message | Should -BeLike '*copied 99 bytes; the current versions alone are 100 bytes*'
+            $Recipient.State | Should -Be 'Completed'
+            $Recipient.Message | Should -BeLike '*Copied 99 bytes with version history, less than the 100 bytes*'
         }
 
         It 'does not compare totals while jobs are still running' {
