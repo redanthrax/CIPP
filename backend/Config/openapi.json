@@ -19,6 +19,9 @@
   ],
   "tags": [
     {
+      "name": "CIPP > CloudBackup"
+    },
+    {
       "name": "CIPP > Core"
     },
     {
@@ -16606,6 +16609,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -16614,7 +16620,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -16645,11 +16672,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -16666,7 +16705,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -16684,7 +16735,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -16693,10 +16753,14 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Results": {
                       "x-cipp-field-source": "backend"
                     },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -16722,6 +16786,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -18064,6 +18137,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -18072,7 +18148,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -18103,11 +18200,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -18124,7 +18233,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -18142,7 +18263,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -18151,10 +18281,14 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Results": {
                       "x-cipp-field-source": "backend"
                     },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -18180,6 +18314,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -19638,6 +19781,450 @@
           }
         ],
         "x-cipp-role": "CIPP.Core.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecCloudBackupCompare": {
+      "post": {
+        "summary": "Compare a cloud backup with the current configuration or another backup",
+        "operationId": "ExecCloudBackupCompare",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Queues a comparison of a configuration backup with the tenant's current configuration or with another backup run, and returns its JobId. Poll ListCloudBackupJobs with the JobId for the added, removed and changed items.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Areas": {
+                    "type": "string",
+                    "description": "Optional configuration areas to compare"
+                  },
+                  "CompareTo": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "'Live' for the current configuration, or another backup run id"
+                  },
+                  "RunId": {
+                    "type": "string",
+                    "description": "Backup run id as returned by ListCloudBackupRuns"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted - work was queued and runs asynchronously"
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecCloudBackupDestination": {
+      "post": {
+        "summary": "Add, edit, delete or test a cloud backup destination",
+        "operationId": "ExecCloudBackupDestination",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Saves an Azure Blob, Amazon S3 or S3-compatible destination for cloud backups and runs a connection test (write, read, delete, lifecycle rules, versioning). The client secret or secret access key is stored in Key Vault; send 'SentToKeyVault' or leave it blank on Edit to keep the stored secret. Delete is refused while a policy uses the destination.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "AccessKeyId": {
+                    "type": "string"
+                  },
+                  "Action": {
+                    "type": "string"
+                  },
+                  "AzureTenantId": {
+                    "type": "string"
+                  },
+                  "Bucket": {
+                    "type": "string"
+                  },
+                  "ClientId": {
+                    "type": "string"
+                  },
+                  "ClientSecret": {
+                    "type": "string"
+                  },
+                  "Container": {
+                    "type": "string"
+                  },
+                  "Endpoint": {
+                    "type": "string"
+                  },
+                  "ForcePathStyle": {
+                    "type": "boolean"
+                  },
+                  "Id": {
+                    "type": "string"
+                  },
+                  "Name": {
+                    "type": "string"
+                  },
+                  "Provider": {
+                    "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "Region": {
+                    "type": "string"
+                  },
+                  "ResourceGroup": {
+                    "type": "string"
+                  },
+                  "SecretAccessKey": {
+                    "type": "string"
+                  },
+                  "StorageAccount": {
+                    "type": "string"
+                  },
+                  "SubscriptionId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "207": {
+            "description": "Partial success - some items failed; per-item results are in the body"
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.AppSettings.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecCloudBackupPolicy": {
+      "post": {
+        "summary": "Add, edit, delete or rotate the key of a cloud backup policy",
+        "operationId": "ExecCloudBackupPolicy",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Saves a cloud backup policy (tenants, configuration areas, schedule, retention, encryption). The destination's lifecycle rule that deletes backups older than the retention is set before the policy is saved, and the policy is not saved when that fails. Delete removes the policy and its lifecycle rule but keeps stored backups and keys. RotateKey creates a new encryption key for future backups.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Action": {
+                    "type": "string",
+                    "enum": [
+                      "Delete",
+                      "RotateKey"
+                    ]
+                  },
+                  "ConfigAreas": {
+                    "type": "string"
+                  },
+                  "ConfigSchedule": {
+                    "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "DestinationId": {
+                    "$ref": "#/components/schemas/LabelValue"
+                  },
+                  "Enabled": {
+                    "type": "boolean"
+                  },
+                  "Encryption": {
+                    "type": "boolean"
+                  },
+                  "Id": {
+                    "type": "string"
+                  },
+                  "Name": {
+                    "type": "string"
+                  },
+                  "RetentionDays": {
+                    "type": "integer"
+                  },
+                  "Tenants": {
+                    "type": "string",
+                    "description": "Tenant selector entries: { value, label, type: 'Tenant' | 'Group', addedFields: { customerId } }; value 'AllTenants' for all tenants"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecCloudBackupRestore": {
+      "post": {
+        "summary": "Preview or run a restore from a cloud backup",
+        "operationId": "ExecCloudBackupRestore",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Queues a restore of Conditional Access, Intune and Exchange configuration from a backup run to the same or another tenant, and returns its JobId. Mode Preview makes no changes and shows what would happen. Mode Apply needs the PreviewJobId of a completed preview with the same options, started by the same user in the last 60 minutes and not used for another restore. Poll ListCloudBackupJobs with the JobId for the results.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Areas": {
+                    "type": "string",
+                    "description": "Configuration areas to restore; defaults to the areas of the selected items or of the backup"
+                  },
+                  "CAState": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "Conditional Access policy state: AsBackedUp, ReportOnly or Disabled"
+                  },
+                  "ConflictAction": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "What to do when the item already exists in the target: Skip, Overwrite or Copy"
+                  },
+                  "Items": {
+                    "type": "string",
+                    "description": "Optional items to restore, each { Area, Section, Key }; all items of the areas when omitted"
+                  },
+                  "Mode": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "Preview (no changes) or Apply"
+                  },
+                  "PreviewJobId": {
+                    "type": "string",
+                    "description": "Id of the completed preview job, required for Apply"
+                  },
+                  "RunId": {
+                    "type": "string",
+                    "description": "Backup run id as returned by ListCloudBackupRuns"
+                  },
+                  "TargetTenant": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "Tenant to restore to (default domain or customerId); defaults to the backed-up tenant"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted - work was queued and runs asynchronously"
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackupRestore.ReadWrite",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ExecCloudBackupRun": {
+      "post": {
+        "summary": "Run a cloud backup policy now",
+        "operationId": "ExecCloudBackupRun",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Starts a configuration backup for a cloud backup policy straight away, for all of its tenants or only the given tenant. The policy's schedule is not changed.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "PolicyId": {
+                    "type": "string"
+                  },
+                  "tenantFilter": {
+                    "allOf": [
+                      {
+                        "$ref": "#/components/schemas/LabelValue"
+                      }
+                    ],
+                    "description": "Optional: back up only this tenant (default domain or customerId) of the policy"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted - work was queued and runs asynchronously"
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.ReadWrite",
         "x-cipp-any-tenant": true
       }
     },
@@ -29021,6 +29608,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -29029,7 +29619,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -29060,11 +29671,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -29081,7 +29704,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -29099,7 +29734,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -29108,7 +29752,11 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -29134,6 +29782,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -29795,6 +30452,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -29803,7 +30463,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -29834,11 +30515,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -29855,7 +30548,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -29873,7 +30578,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -29882,10 +30596,14 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Results": {
                       "x-cipp-field-source": "backend"
                     },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -29911,6 +30629,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -34618,6 +35345,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Action": {
                       "x-cipp-field-source": "backend"
                     },
@@ -34629,7 +35359,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -34660,11 +35411,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -34681,7 +35444,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -34702,7 +35477,16 @@
                     "Metadata": {
                       "x-cipp-field-source": "backend"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -34711,10 +35495,14 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Results": {
                       "x-cipp-field-source": "backend"
                     },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -34740,6 +35528,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -37102,6 +37899,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -37110,7 +37910,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -37141,11 +37962,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -37162,7 +37995,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -37180,7 +38025,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -37189,10 +38043,14 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Results": {
                       "x-cipp-field-source": "backend"
                     },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -37218,6 +38076,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -38617,6 +39484,9 @@
                   "type": "object",
                   "description": "Derived from the fields written into the storage table it reads. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
                   "properties": {
+                    "AccessKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Actor": {
                       "type": "string",
                       "x-cipp-field-source": "storage"
@@ -38625,7 +39495,28 @@
                       "type": "string",
                       "x-cipp-field-source": "storage"
                     },
+                    "AzureTenantId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Bucket": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ClientId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "colour": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigAreas": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigNextRun": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "ConfigSchedule": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Container": {
                       "x-cipp-field-source": "storage"
                     },
                     "coverFooterText": {
@@ -38656,11 +39547,23 @@
                     "CredentialVersion": {
                       "x-cipp-field-source": "storage"
                     },
+                    "CurrentKeyId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "DestinationId": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "DomainExclusions": {
                       "x-cipp-field-source": "storage"
                     },
                     "Enabled": {
                       "type": "boolean",
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Encryption": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Endpoint": {
                       "x-cipp-field-source": "storage"
                     },
                     "ETag": {
@@ -38677,7 +39580,19 @@
                     "footerText": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ForcePathStyle": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "KeyIds": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "Label": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTest": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "LastTestedAt": {
                       "x-cipp-field-source": "storage"
                     },
                     "logo": {
@@ -38695,7 +39610,16 @@
                     "MaxDuration": {
                       "x-cipp-field-source": "storage"
                     },
+                    "Name": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "PartitionKey": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Provider": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Region": {
                       "x-cipp-field-source": "storage"
                     },
                     "reportDefaults": {
@@ -38704,7 +39628,11 @@
                     "Resolver": {
                       "x-cipp-field-source": "storage"
                     },
+                    "ResourceGroup": {
+                      "x-cipp-field-source": "storage"
+                    },
                     "RetentionDays": {
+                      "type": "integer",
                       "x-cipp-field-source": "storage"
                     },
                     "roleColours": {
@@ -38730,6 +39658,15 @@
                       "x-cipp-field-source": "storage"
                     },
                     "StandardsExcludeAllTenants": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "StorageAccount": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "SubscriptionId": {
+                      "x-cipp-field-source": "storage"
+                    },
+                    "Tenants": {
                       "x-cipp-field-source": "storage"
                     },
                     "Timestamp": {
@@ -51568,6 +52505,490 @@
           }
         ],
         "x-cipp-role": "CIPP.SuperAdmin.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupDestinations": {
+      "get": {
+        "summary": "List cloud backup destinations",
+        "operationId": "ListCloudBackupDestinations",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Lists the storage destinations (Azure Blob, Amazon S3 or S3-compatible) that cloud backup policies upload to, with the last connection test result and how many policies use each one. Secrets are never returned.",
+        "parameters": [
+          {
+            "name": "Id",
+            "in": "query",
+            "description": "Optional destination id to return a single destination",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "Derived from the fields the endpoint selects onto each record, and the columns the CIPP UI renders. The response may carry more; these are the ones known to exist.",
+                    "properties": {
+                      "AccessKeyId": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "AzureTenantId": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Bucket": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "ClientId": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Container": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Delete": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Endpoint": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Errors": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "ForcePathStyle": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Id": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "LastTest": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "LastTestedAt": {
+                        "x-cipp-field-source": "backend,frontend"
+                      },
+                      "LastTestStatus": {
+                        "x-cipp-field-source": "backend,frontend"
+                      },
+                      "Lifecycle": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Location": {
+                        "x-cipp-field-source": "backend,frontend"
+                      },
+                      "Name": {
+                        "x-cipp-field-source": "backend,frontend"
+                      },
+                      "PolicyCount": {
+                        "x-cipp-field-source": "backend,frontend"
+                      },
+                      "Provider": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "ProviderName": {
+                        "x-cipp-field-source": "frontend"
+                      },
+                      "Read": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Region": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "ResourceGroup": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "SecretSet": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "StorageAccount": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "SubscriptionId": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Versioning": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Write": {
+                        "x-cipp-field-source": "backend"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.AppSettings.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupJobs": {
+      "get": {
+        "summary": "List cloud backup compare and restore jobs",
+        "operationId": "ListCloudBackupJobs",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Lists the newest 200 compare, restore preview and restore jobs of the last 30 days with their status, tenants, who started them and a summary of the results. With Id, returns that job including every result item. Callers limited to some tenants only see jobs for those tenants.",
+        "parameters": [
+          {
+            "name": "Id",
+            "in": "query",
+            "description": "Optional job id to return one job with its results",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupOverview": {
+      "get": {
+        "summary": "Cloud backup overview",
+        "operationId": "ListCloudBackupOverview",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Summarises cloud backup: number of policies and destinations, tenants covered by enabled policies, failed runs in the last 24 hours, the size of the latest backups, and the latest run for each policy and tenant.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "Derived from the fields written into the storage table it reads, and the fields the endpoint selects onto each record. Fields taken from the storage writers may be omitted by this endpoint, and the response may carry computed fields not listed here.",
+                    "properties": {
+                      "Areas": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Bytes": {
+                        "type": "integer",
+                        "x-cipp-field-source": "storage"
+                      },
+                      "CompletedAt": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "DestinationId": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Destinations": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "EnabledPolicies": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "ETag": {
+                        "type": "string",
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Failures24h": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Items": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "LatestBytes": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "LatestRuns": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Location": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "PartitionKey": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Policies": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "PolicyId": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "PolicyName": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "RowKey": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "StartedAt": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Status": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Tenant": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "TenantId": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "TenantsCovered": {
+                        "x-cipp-field-source": "backend"
+                      },
+                      "Timestamp": {
+                        "type": "string",
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Warnings": {
+                        "x-cipp-field-source": "storage"
+                      },
+                      "Workload": {
+                        "x-cipp-field-source": "storage"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupPolicies": {
+      "get": {
+        "summary": "List cloud backup policies",
+        "operationId": "ListCloudBackupPolicies",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Lists cloud backup policies: which tenants and configuration areas (Conditional Access, Intune, Exchange, SharePoint) each backs up, to which destination, how often, how long backups are kept, whether they are encrypted, and the last run. Callers limited to some tenants only see policies that target just those tenants.",
+        "parameters": [
+          {
+            "name": "Id",
+            "in": "query",
+            "description": "Optional policy id to return a single policy",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupRuns": {
+      "get": {
+        "summary": "List cloud backup runs",
+        "operationId": "ListCloudBackupRuns",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Lists cloud backup run history, newest first (at most 1000 runs): status, when it ran, how long it took, how many items and bytes were backed up per configuration area, warnings, and where the backup is stored. Filter by policy or tenant. Callers limited to some tenants only see runs for those tenants.",
+        "parameters": [
+          {
+            "name": "PolicyId",
+            "in": "query",
+            "description": "Optional policy id to list the runs of one policy",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantFilter",
+            "in": "query",
+            "description": "Optional tenant (default domain or customerId) to list the runs of one tenant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
+        "x-cipp-any-tenant": true
+      }
+    },
+    "/api/ListCloudBackupSnapshot": {
+      "get": {
+        "summary": "List the items in a cloud backup run",
+        "operationId": "ListCloudBackupSnapshot",
+        "tags": [
+          "CIPP > CloudBackup"
+        ],
+        "description": "Reads a configuration backup from its destination and lists every backed-up item (Conditional Access, Intune, Exchange and SharePoint settings) with its section, name and the full backed-up object.",
+        "parameters": [
+          {
+            "name": "Area",
+            "in": "query",
+            "description": "Optional configuration area to list",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "RunId",
+            "in": "query",
+            "description": "Backup run id as returned by ListCloudBackupRuns",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardResults"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing required field or invalid input"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing bearer token"
+          },
+          "403": {
+            "description": "Forbidden - caller lacks the required RBAC role"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-cipp-role": "CIPP.CloudBackup.Read",
         "x-cipp-any-tenant": true
       }
     },
