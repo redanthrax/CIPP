@@ -1269,6 +1269,43 @@ export const nativeMenuItems = [
     ],
   },
   {
+    title: 'Cloud Backup',
+    type: 'header',
+    icon: (
+      <SvgIcon>
+        <CippIcons.CloudIcon />
+      </SvgIcon>
+    ),
+    permissions: ['CIPP.CloudBackup.*', 'CIPP.AppSettings.*'],
+    items: [
+      {
+        title: 'Overview',
+        path: '/cloud-backup/overview',
+        docsPath: 'cloud-backup',
+        permissions: ['CIPP.CloudBackup.*'],
+        scope: 'global',
+      },
+      {
+        title: 'Policies',
+        path: '/cloud-backup/policies',
+        permissions: ['CIPP.CloudBackup.*'],
+        scope: 'global',
+      },
+      {
+        title: 'Destinations',
+        path: '/cloud-backup/destinations',
+        permissions: ['CIPP.AppSettings.*'],
+        scope: 'global',
+      },
+      {
+        title: 'Runs',
+        path: '/cloud-backup/runs',
+        permissions: ['CIPP.CloudBackup.*'],
+        scope: 'global',
+      },
+    ],
+  },
+  {
     title: 'CIPP',
     type: 'header',
     icon: (
